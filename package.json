@@ -1,0 +1,22 @@
+{
+  "name": "discordbotforosu",
+  "version": "1.0.0",
+  "description": "게임 osu! 에 관련된 기능들을 보유하고있는 디스코드 봇입니다.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cvoi8611/discordBotForOsu.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/cvoi8611/discordBotForOsu/issues"
+  },
+  "homepage": "https://github.com/cvoi8611/discordBotForOsu#readme",
+  "dependencies": {
+    "discord.js": "^14.18.0"
+  }
+}

@@ -9,7 +9,10 @@ const URL_get_user_best = `https://osu.ppy.sh/api/get_user_best?k=${osu_token}&u
 const URL_get_user_recent = `https://osu.ppy.sh/api/get_user_recent?k=${osu_token}&u=userId`;
 const URL_get_scores = `https://osu.ppy.sh/api/get_scores?k=${osu_token}&b=beatmapId&u=userId`;
 
+let SAVED_ACHIEVEMENTS = new Map();
 let SAVED_RECENT_SCORES;
+
+let TOP30_PP = [];
 
 const requestHeader_GET = {
     mothod: "GET",
@@ -151,9 +154,8 @@ client.on('messageCreate', message => {
 // 봇이 켜지면서 동시에 등록된 유저들의 최고기록 30등의 pp를 받아와서 저장함
 // 이후, 지속적으로 유저들의 recent 기록을 n sec마다 확인
 // -> recent 기록에서 확인된 pp....가 있으면 편한데 pp를 확인 못함 ㅅㅂ..
-    // 이게 존나 문제임 ㅅㅂ 어카지
+    // 이게 존나 문제임 tq 어카지
 // 최고기록 30등의 pp 이상의 pp를 먹은 기록이 생겼다면, 이를 알리고 최고기록 30등의 pp를 다시 받아와서 저장함
-    // 결국에 이것도 문제임 pp 시발.....
 
 // 해결 방법
 // -> get_score에서 scoreId를 입력해서 가져오면 해당 맵에서 얻은 pp가 나오는 것을 확인
@@ -186,6 +188,9 @@ client.on('messageCreate', message => {
     if (message.content.match("recent")){
         userId = "9098416";
         compareUserRecent(userId);
+    }
+    if (message.content.match("check SAVED_ACHIEVEMENTS")){
+        console.log(SAVED_ACHIEVEMENTS);
     }
     if (message.content.match("show beatmap")){
         let beatmapSetNum = "384772";
@@ -270,6 +275,7 @@ async function testScore(beatmapId, userId, scoreId){
 async function defineUserBestPP(userId) {
     let top30PP = await getUserBestPP(userId);
     console.log ("top30PP : " + top30PP);
+    TOP30_PP[userId] = top30PP;
         
     data = JSON.parse(fs.readFileSync('./data.json'));
     data.osu_userTopPP[userId] = top30PP;
@@ -322,19 +328,21 @@ async function getAchievements(beatmapId, scoreId, userId){
         }));
         // 비트맵 id, 유저 명, 모드 유무, 300/100/50/miss 갯수, 콤보 갯수, rank, pp
 
-        // beatmap Id는 일치하나, score Id가 일치하지 않는 경우는, 기록 갱신이 되지 않은 경우이므로 제외한다.
-        // ex) 최근 기록에서 180pp를 먹었으나, 이전 최고 기록이 189pp라서 180pp를 먹은 기록은 갱신 되지 않음
-        if (data.score_id !== scoreId){
-            console.log("getAchievements Data not renewed\n"+data);
-            data[0].pp = 0;
+        // beatmap Id는 일치하나, score Id가 일치하지 않는 경우는, 맵에 한정하여 기록 갱신이 되지 않은 경우이므로 제외한다.
+        // ex) 최근 기록에서 180pp를 먹었으나, 이전 최고 기록이 250pp라서 180pp를 먹은 기록은 갱신 되지 않음
+
+        if (data[0].score_id !== scoreId){
+            console.log("해당 맵의 최고 기록과, recent 기록이 일치하지 않음\n"+data[0].pp);
+            data[0].pp = -1;
             return data;
 
-            // 빈 배열 return 하면 안댐
-            
-            // score id가 일치하지 않으면 빈 배열을 return함
+            // 모든 정보를 return 하되, pp를 -1으로 설정함
         }
-        console.log("getAchievements Data renewed\n"+data);
+        // 해당 맵의 최고기록임을 확인함
+        console.log("해당 맵의 최고 기록과, recent 기록이 일치함\n"+data);
         return data;
+
+        
     }
     catch (error) {
         console.error('Error:', error);
@@ -365,60 +373,87 @@ async function compareUserRecent(userId){
         const newData = B.filter(b => !setA.has(`${b.beatmap_id}-${b.score_id}`));
         */
 
-        // 새로운 유의미한 기록이 갱신되지 않았으면, 종료시킴
+        // 최근 기록이 갱신되지 않았으면, 종료시킴
         if (newRecentScores.length < 1){
-            console.log('새로운 유의미한 기록이 갱신되지 않음.');
+            console.log('최근 기록이 갱신되지 않음.');
         }
         else {
-            console.log ('의미있는 기록을 발견함.');
+            console.log ('최근 기록을 발견함.');
             recentScores = newRecentScores;
             console.log (newRecentScores);
-            for (let i=0; i<newRecentScores.length; i++){
-                console.log (`의미있는 score_id : `+recentScores[i].score_id);
-            }
 
             // 최근 5개의 기록중 밑에서부터 하나씩 기록 조사
             // 비트맵 id, 유저 명, 모드 유무, 300/100/50/miss 갯수, 콤보 갯수, rank, pp 를 전부 가져옴
 
-            let achievements = new Set();
 
-            for (let i=recentScores.length-1; i>=0; i--){
+            for (let i=0; i<recentScores.length; i++){
                 const getData = await getAchievements(recentScores[i].beatmap_id, recentScores[i].score_id, recentScores[i].user_id)
-                if (achievements.has(getData)) break;
+                
+                // 중복 검사, 만약 중복되는 경우가 있다면 getAchievements 작업을 종료함
+                if (SAVED_ACHIEVEMENTS.has(getData[0].score_id)) {
+                    console.log("중복 자료 발견함 종료.");     
+                    break;
+                }
+                SAVED_ACHIEVEMENTS.set(getData[0].score_id);
 
-                achievements.add(getData);
-                let array_achievements = JSON.stringify([...achievements], null, 4);
+                // Set 형식을 읽을 수 있게 stringify 함
+                // let array_achievements = JSON.stringify([...SAVED_ACHIEVEMENTS], null, 4);
             
                 console.log("-------achievements Set----");
-                console.log(achievements+"\n");
-                console.log(array_achievements);
+                //console.log(achievements+"\n");
+                //console.log(array_achievements);
+                console.log(getData);
                 console.log("-------achievements----");
 
                 
                 //config.json에서 가져온 30등 pp
                 let top30PP = osu_userTopPP[userId];
-                console.log(`top30PP : ${top30PP} / achievements[${i}] : ${array_achievements[0][0].pp}`);
+                console.log(`top30PP : ${top30PP} / achievements[${i}] : ${getData[0].pp}`);
     
     
                 // 최고기록 30등의 pp량을 넘는 pp를 먹은 경우
-                // if (JSON.stringify(achievements[recentScores.length-i+1].pp) > top30PP){
-                //     console.log("이쌔끼 또 기록 세웠어요!!!!! 재능충새기!!!!!!!");
-                //     console.log("세운 기록 : " + achievements[i].beatmap_id);
-                //     console.log("획득 pp : "+achievements[i].pp);
-                // }
+
+                if (JSON.stringify(getData[0].pp) > top30PP){
+                    console.log("이쌔끼 또 기록 세웠어요!!!!! 재능충새기!!!!!!!");
+                    console.log("세운 유저 : " + getData[0].username);
+                    console.log("300 : " + getData[0].count300 + " / 100 : "+getData[0].count100+" / 50 : "+getData[0].count50+" / miss : "+getData[0].countmiss);
+                    // Mods checkMod() 구현 미완료
+                    //console.log("Mods : "+ checkMod(getData[0].enabled_mods));
+                    console.log("획득 pp : "+getData[0].pp);
+                }
 
                 // 반복되는 recent 데이터가 없는 경우, 데이터 검사 시행
-
-                
             }
-            
-
         }
     }
     catch (error) {
         console.error('Error:', error);
         return null; // 에러 발생 시 null 반환
     }
+}
+
+// 모드 체크
+/*
+    None           = 0,
+    NoFail         = 1,
+    Easy           = 2,
+    TouchDevice    = 4,
+    Hidden         = 8,
+    HardRock       = 16,
+    SuddenDeath    = 32,
+    DoubleTime     = 64,
+    Relax          = 128,
+    HalfTime       = 256,
+    Nightcore      = 512, // Only set along with DoubleTime. i.e: NC only gives 576
+    Flashlight     = 1024,
+    Autoplay       = 2048,
+    SpunOut        = 4096,
+ */
+
+function checkMod (mods_num){
+    const Modes = ["None", "NoFail", "Easy", "TouchDevice", "Hidden", "HardRock", "SuddenDeath", "DoubleTime", "Relax", "HalfTime", "Nightcore", "Flashlight"];
+    const convertMods = (x) => x > 0 ? Math.log2(x) + 1 : 0;
+    return Modes[convertMods(mods_num)];
 }
 
 

@@ -1,26 +1,36 @@
 const { REST, Routes } = require('discord.js');
 const { Client, Collection ,Events, GatewayIntentBits, Message, MessageCollector, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { clientId, guildId, token, osu_token} = require('./config.json');
-const { osu_userId, osu_userTopPP } = require('./data.json');
+const { osu_userId, osu_userRankNum, osu_userRankPP } = require('./data.json');
 const fs = require('fs');
 const path = require('path');
 
-// TOP_PP_NUMBER = 1 ~ 100
-const TOP_PP_NUMBER = 50;
+// OSU_USERRANKNUM = 1 ~ 50
 
-let MONITORING_AVAILABLE = false;
+// 분당 최대 API 요청 횟수
+// 비트맵 정보 제공 API는 포함되지 않았으므로, API 횟수 제한을 초과할 위험성이 존재함
+let MAX_API_COUNTER = 40;
+let CURRENT_API_COUNTER = 0;
 
+let OBSERVING_AVAILABLE = false;
+let IS_USERBESTPP_UPDATED = false;
 
 const URL_get_beatmap = `https://osu.ppy.sh/api/get_beatmaps?k=${osu_token}&s=beatmapsetId`;
 const URL_get_user = `https://osu.ppy.sh/api/get_user?k=${osu_token}&u=userId`;
-const URL_get_user_best = `https://osu.ppy.sh/api/get_user_best?k=${osu_token}&u=userId&limit=${TOP_PP_NUMBER}`;
+const URL_get_user_best = `https://osu.ppy.sh/api/get_user_best?k=${osu_token}&u=userId&limit=OSU_USERRANKNUM`;
 const URL_get_user_recent = `https://osu.ppy.sh/api/get_user_recent?k=${osu_token}&u=userId`;
 const URL_get_scores = `https://osu.ppy.sh/api/get_scores?k=${osu_token}&b=beatmapId&u=userId`;
 
-
+let exampleEmbed = new EmbedBuilder()
+                    .setColor(0x0099FF)
+                    .setTitle('Some title')
+                    .setURL('https://osu.ppy.sh/')
+                    .setDescription('Some description here')
+                    .setThumbnail('https://i.imgur.com/TfBPbos.png')
+                    .setTimestamp()
 
 let SAVED_ACHIEVEMENTS = new Map();
-let TOP_PP_MAP = new Map();
+let TOP50_PP_MAP = new Map();
 
 const requestHeader_GET = {
     mothod: "GET",
@@ -40,6 +50,8 @@ const client = new Client({ intents: [
     GatewayIntentBits.MessageContent
 ] });
 
+
+
 // client가 준비상태일때, 아래 코드를 실행
 client.once(Events.ClientReady, c => {
     console.log(`Get Ready! Logged in as ${c.user.tag}`);
@@ -49,28 +61,46 @@ client.once(Events.ClientReady, c => {
 
 // 슬래쉬 ('/') 명령어 추가 코드
 
+const commands = [];
+
+const commandsPath = path.join(__dirname, 'commands');
+const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+for (const file of commandFiles) {
+    const filePath = path.join(commandsPath, file);
+    const command = require(filePath);
+    // Set a new item in the Collection with the key as the command name and the value as the exported module
+    if ('data' in command && 'execute' in command) {
+        commands.push(command.data.toJSON());
+    } else {
+        console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+    }
+}
+
+
+// Rest 호출
+const rest = new REST().setToken(token);
 
 client.on('ready', async () => { 
     // guildId = 슬래시 명령어를 등록할 서버 ID
     const guild = client.guilds.cache.get(guildId);
 
-    await guild.commands.create({
-        name: '실시간모드', // 명령어 이름
-        description: 'osu! 실시간 pp 모니터링 모드 on/off 합니다. (기본값 : off)',
-    });
+    try {
+		console.log(`Started refreshing ${commands.length} application (/) commands.`);
 
-    // await guild.commands.create({
-    //     name: '등수 입력',
-    //     description: '최고 성과 (입력한 숫자)등 이내의 기록을 실시간 모니터링 합니다. (기본값 : 50)',
-    //     options : [
-    //         {
-    //             type: 4,  // 숫자 타입
-    //             name: 'ranking_num',  // 옵션 이름
-    //             description: 'Enter a number', // 옵션 설명
-    //             required: true,   // 필수 입력
-    //         }
-    //     ]
-    // })
+		// The put method is used to fully refresh all commands in the guild with the current set
+		const data = await rest.put(
+			Routes.applicationGuildCommands(clientId, guildId),
+			{ body: commands },
+		)
+        .then(() => console.log('Successfully registered application commands.'))
+        .catch(console.error);
+
+		//console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+	} catch (error) {
+		// And of course, make sure you catch and log any errors!
+		console.error(error);
+	}
+
 
     console.log('command registered!');
 });
@@ -78,34 +108,74 @@ client.on('ready', async () => {
 
 // 슬래쉬 ('/') 명령어 응답 코드
 client.on('interactionCreate', async interaction =>{
-    if (!interaction.isChatInputCommand()) return;
+    if (!interaction.isCommand()) return;
     
     // 메시지 읽는 코드
     // console.log(`[${message.guild.name}] ${message.author.tag}: ${message.content}`);
 
     const commandName = interaction.commandName;
+    let username, rankNum, rankPP, userId;
     console.log(commandName);
     switch (commandName) {
         case '실시간모드':
-            if (!MONITORING_AVAILABLE){
-                MONITORING_AVAILABLE = !MONITORING_AVAILABLE;
+            if (!IS_USERBESTPP_UPDATED){
+                await interaction.reply('/유저_등록 명령어를 우선적으로 실행하세요.')
+                break;
+            }
+            if (!OBSERVING_AVAILABLE){
+                OBSERVING_AVAILABLE = !OBSERVING_AVAILABLE;
                 await interaction.reply('실시간 모드 켜짐');
-                //observePPChange();
+                observePPChange();
             }
             else {
-                MONITORING_AVAILABLE = !MONITORING_AVAILABLE;
+                OBSERVING_AVAILABLE = !OBSERVING_AVAILABLE;
                 await interaction.reply('실시간 모드 꺼짐');
             }
             break;
-        case '등수 입력':
-            TOP_PP_NUMBER = interaction.options.getNumber('ranking_num');
-            await interaction.reply(`최고 성과 ${TOP_PP_NUMBER}등 이내의 기록을 실시간 모니터링 합니다.`);
-            
-            for (let user in osu_userId) {
-                console.log(`osu! 실시간 감지 기능 ${user} 등록됨.`);
-                updateUserBestPP(osu_userId[user]);
-            }
+
+        case '유저_등수등록':
+            username = interaction.options.getString('user');
+            rankNum = interaction.options.getNumber('rank_num')-1;
+            userId = osu_userId[username];
+            updateUserBestPP(userId, rankNum, 0);
+            rankPP = osu_user
+            await interaction.reply(`${username}님의 최고 성과 ${rankNum+1}등 이내의 기록(${rankPP}pp)을 실시간 모니터링 합니다.`);
             break;
+
+        case '유저_pp등록':
+            username = interaction.options.getString('user');
+            rankPP = interaction.options.getNumber('rank_pp');
+            userId = osu_userId[username];
+            updateUserBestPP(userId, rankPP, 1);
+            await interaction.reply(`${username}님의 최고 성과 ${rankNum+1}등 이내의 기록(${rankPP}pp)을 실시간 모니터링 합니다.`);
+            break;
+
+        case '유저_정보':
+            username = interaction.options.getString('user');
+            showUserStatus(username);
+            break;
+
+        case '유저_등록':
+            IS_USERBESTPP_UPDATED = true;
+            registeredUsers = [];
+            Object.entries(osu_userRankNum).forEach(([username, rankNum]) => {
+                console.log(`유저 ${username}의 설정된 기본 등수 : ${rankNum}`);
+                updateUserBestPP(osu_userId[username], rankNum, 0);
+                registeredUsers.push(username+" ");
+            });
+            const resultEmbed = new EmbedBuilder()
+            .setColor(0x0099ff) // 임베드 바 색깔
+            .setTitle(`osu! 실시간 감지 유저 정보`)
+            .setDescription(`osu! 실시간 감지 유저 정보`)
+            .addFields(
+                {   
+                    name: `등록된 유저` , value: `${registeredUsers}`
+                },
+            );
+        
+            await interaction.reply({ embeds: [resultEmbed] });
+            break;
+
         case 'ping':
             await interaction.reply('Pong!');
             break;
@@ -131,10 +201,11 @@ client.on('messageCreate', message => {
         const map_num = message.content.match(FIRST_NUM);
         const beatmapsetId = map_num[0];
         console.log ("osu 맵 번호는 : "+beatmapsetId);
-        
-        
+
+
         fetch(URL_get_beatmap.replace("beatmapsetId", beatmapsetId), requestHeader_GET)
             .then(response => {
+                CURRENT_API_COUNTER++;
                 if (!response.ok) {
                     throw new Error('Network response was not ok');
                 }
@@ -144,14 +215,7 @@ client.on('messageCreate', message => {
                 // 데이터를 정상적으로 받아옴
 
                 // 데이터를 받아오면, Example Embed 구성함
-                let exampleEmbed = new EmbedBuilder()
-                    .setColor(0x0099FF)
-                    .setTitle('Some title')
-                    .setURL('https://osu.ppy.sh/')
-                    .setDescription('Some description here')
-                    .setThumbnail('https://assets.ppy.sh/beatmaps/beatmapset_id/covers/cover.jpg')
-                    .setTimestamp()
-
+                let beatmapinfoEmbed = exampleEmbed;
 
                 // 난이도 순으로 정렬
                 data.sort((a, b) => a.difficultyrating - b.difficultyrating);
@@ -159,7 +223,7 @@ client.on('messageCreate', message => {
                 // standard외 다른 모드 제거
                 data = data.filter(item => item.mode =! 0)
                 
-                console.log(data);
+                //console.log(data);
                 
                 // 난이도 갯수 Count
                 let diffRatings = data.map(beatmap => parseFloat(beatmap.difficultyrating));
@@ -167,7 +231,7 @@ client.on('messageCreate', message => {
 
 
                 // 맵 제목, 제작자 addFields
-                exampleEmbed.addFields(
+                beatmapinfoEmbed.addFields(
                     { name: '\u200B', value: '\u200B' },
                     { name: data[0].title , value: 'by '+ data[0].artist },
                     { name: '\u200B', value: '\u200B' },
@@ -183,14 +247,14 @@ client.on('messageCreate', message => {
                     //let rawPP = calculateRawPP(starRating, totalLength, noteCount)
                     let rawPP = NaN;
                     
-                    exampleEmbed.addFields(
+                    beatmapinfoEmbed.addFields(
                         { name: data[i].version+"\nby "+data[i].creator, value: starRating.toFixed(2)+'★\n(SS) '+ rawPP + ' pp' , inline: true }
                     )
                 }
 
                 // 전체적인 beatmap 정보 메시지로 출력 (Embeds로 출력함)
                 message.channel.send({ embeds: [
-                    exampleEmbed
+                    beatmapinfoEmbed
                         .setTitle(data[0].title+"\n < osu! beatmap info > ")
                         .setURL(`https://osu.ppy.sh/beatmapsets/${beatmapsetId}`)
                         .setDescription("legnth - " + parseInt(data[0].total_length/60) + ":" + data[0].total_length%60)
@@ -208,11 +272,11 @@ client.on('messageCreate', message => {
 
 
 
-// 봇이 켜지면서 동시에 등록된 유저들의 최고기록 (TOP_PP_NUMBER)등의 pp를 받아와서 저장함
+// 봇이 켜지면서 동시에 등록된 유저들의 최고기록 (osu_userRankNum[username])등의 pp를 받아와서 저장함
 // 이후, 지속적으로 유저들의 recent 기록을 n sec마다 확인
 // -> recent 기록에서 확인된 pp....가 있으면 편한데 pp를 확인 못함 ㅅㅂ..
     // 이게 존나 문제임 tq 어카지
-// 최고기록 (TOP_PP_NUMBER)등의 pp 이상의 pp를 먹은 기록이 생겼다면, 이를 알리고 최고기록 (TOP_PP_NUMBER)등의 pp를 다시 받아와서 저장함
+// 최고기록 (osu_userRankNum[username])등의 pp 이상의 pp를 먹은 기록이 생겼다면, 이를 알리고 최고기록 (osu_userRankNum[username])등의 pp를 다시 받아와서 저장함
 
 // 해결 방법
 // -> get_score에서 scoreId를 입력해서 가져오면 해당 맵에서 얻은 pp가 나오는 것을 확인
@@ -243,21 +307,35 @@ client.on('messageCreate', message => {
 // 총 7명의 최근 기록을 요청, - 6 x 7 = 42회
 // 중복되는 기록이 존재하는 경우, 추가적인 beatmap 요청을 중지하므로 최소 2 x 7 회로 줄어듬
 
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function observePPChange(){
     let counter = 0;
+    console.log("Observing Activated");
 
-    while (MONITORING_AVAILABLE){
-        await wait(10000);  // 10sec
-        console.log("Hello?");
+    while (OBSERVING_AVAILABLE){
+        for (const [name, userId] of Object.entries(osu_userId)) {
+            console.log(`유저명: ${name}, 유저 ID: ${userId}`);
+            compareUserRecent(userId);
+            console.log(`최근 기록 관찰된 유저명: ${name}, 유저 ID: ${userId}`);
+            await wait(10000); // 10초 대기
+        }
     }
+    console.log("Observing Inactivated");
 }
 
 
 // 실시간 기능 안넣고 수동으로 돌아가게끔 하는 테스트 코드
 client.on('messageCreate', message => {
     if (message.author.bot) return; // 봇 메시지는 무시
-    if (message.content.match("activate auto check")){
+    if (message.content.match("test")){
+        for (const [name, userId] of Object.entries(osu_userId)) {
+            console.log(`유저명: ${name}, 유저 ID: ${userId}`);
+            updateUserBestPP(userId);
+            message.reply(`유저: ${name} 의 pp가 업데이트 되었습니다!.`);
+        }
         
     }
     if (message.content.match("update user best pp")){
@@ -284,44 +362,88 @@ client.on('messageCreate', message => {
     
 })
 
-async function registerUserData(userId){
-    
+async function showUserStatus(username){
+    let userId = osu_userId[username];
+    let rankNum = osu_userRankNum[username];
+    let rankPP = osu_userRankPP[userId];
+    let osuUsers = Object.keys(osu_userId);
+    if (osuUsers.includes(username)) {
+        const resultEmbed = new EmbedBuilder()
+            .setColor(0x0099ff) // 임베드 바 색깔
+            .setTitle(`osu! 실시간 감지 유저 정보`)
+            .setDescription(`osu! 실시간 감지 유저 정보`)
+            .addFields(
+                {   
+                    name: `${username}님의 정보` , value: `최고기록 ${rankNum+1}등 이내의 기록(${rankPP}) 감지중`
+                },
+            );
+        
+        await interaction.reply({ embeds: [resultEmbed] });
+    }
+    else {
+        const errorEmbed = new EmbedBuilder()
+            .setColor(0x0099ff) // 임베드 바 색깔
+            .setTitle('오류 발생')
+            .setDescription(`유저를 찾을 수 없음`);
+        
+        await interaction.reply({ embeds: [errorEmbed] });
+
+    }
 }
 
-async function updateUserBestPP(userId) {
-    let top_N_PP = await getUserBestPP(userId);
-    console.log (`top ${TOP_PP_NUMBER} PP : ` + top_N_PP);
+async function updateUserBestPP(userId, num, mode) {
+    if (mode == 0) console.log("등수를 기준으로 계산");
+    if (mode == 1) console.log("pp를 기준으로 계산");
+    let top_N_PP = await getUserBestPP(userId, num, mode);
+    console.log (`top ${osu_userRankNum[username]} PP : ` + top_N_PP);
         
     data = JSON.parse(fs.readFileSync('./data.json'));
-    data.osu_userTopPP[userId] = TOP_PP_MAP.get(userId)[TOP_PP_NUMBER-1];
+    data.osu_userRankPP[userId] = TOP50_PP_MAP.get(userId)[osu_userRankNum[username]-1];
     fs.writeFile('./data.json', JSON.stringify(data, null, 4),  'utf8', (err) => {
         if (err) {
             console.error("파일을 저장하는 중 오류 발생:", err);
             return;
         }
-        console.log("osu_userTopPP가 성공적으로 업데이트되었습니다!");
+        console.log("osu_userRankPP가 성공적으로 업데이트되었습니다!");
     })
 }
 
-async function getUserBestPP(userId){
+async function getUserBestPP(userId, num, mode){
     try {
-        const response = await fetch(URL_get_user_best.replace("userId",userId), requestHeader_GET);
+        username = Object.entries(osu_userId).find(([key, value]) => value === userId)?.[0];
+        let rankNum = 0, rankPP = 0;
+        if (mode == 0) {
+            //console.log("등수를 기준으로 계산");
+            rankNum = num;
+            rankPP = -1;
+        }
+        if (mode == 1) {
+            //console.log("pp를 기준으로 계산");
+            rankPP = num;
+            rankNum = -1;
+        }
 
+        const response = await fetch(URL_get_user_best.replace("userId",userId).replace("OSU_USERRANKNUM",osu_userRankNum[username]), requestHeader_GET);
+        CURRENT_API_COUNTER++;
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
 
         const data = await response.json();
+        //console.log("data :\n"+JSON.stringify(data, null, 4));
 
-        // Update TOP_PP_MAP
+        // Update TOP50_PP_MAP
         let pp_datas = [];
-        for (let i=0; i<TOP_PP_NUMBER; i++){
+        for (let i=0; i<50; i++){
+            //console.log(`${i}번째 데이터의 pp : `+data[i].pp);
             pp_datas[i] = data[i].pp;
+            if (data[i].pp < rankPP && rankNum == -1) rankNum = i-1;    // i-1 등을 포함한 높은 등수를 기록한 최고 기록을 조회함
+            if (i < rankNum && rankPP == -1) rankPP = data[i].pp;       // i 등을 포함한 높은 등수를 기록한 최고 기록을 조회함
         }
-        TOP_PP_MAP.set(userId, pp_datas);
+        TOP50_PP_MAP.set(userId, pp_datas);
 
-        console.log(userId+"'s top 30 pp:"+TOP_PP_MAP.get(userId)[TOP_PP_NUMBER-1]);
-        return data[TOP_PP_NUMBER-1].pp;
+        //console.log(userId+"'s top 30 pp:"+TOP50_PP_MAP.get(userId)[osu_userRankNum[username]-1]);
+        return data[osu_userRankNum[username]-1].pp;
         
     } catch(error) {
         console.error('Error:', error);
@@ -333,6 +455,7 @@ async function getUserBestPP(userId){
 async function getAchievements(beatmapId, scoreId, userId){
     try {
         const response = await fetch((URL_get_scores.replace("userId",userId).replace("beatmapId",beatmapId)), requestHeader_GET);
+        CURRENT_API_COUNTER++;
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
@@ -346,7 +469,7 @@ async function getAchievements(beatmapId, scoreId, userId){
             maxcombo, enabled_mods, user_id, rank, pp
         }));
         // 비트맵 id, 유저 명, 모드 유무, 300/100/50/miss 갯수, 콤보 갯수, rank, pp
-
+        
         // beatmap Id는 일치하나, score Id가 일치하지 않는 경우는, 맵에 한정하여 기록 갱신이 되지 않은 경우이므로 제외한다.
         // ex) 최근 기록에서 180pp를 먹었으나, 이전 최고 기록이 250pp라서 180pp를 먹은 기록은 갱신 되지 않음
 
@@ -425,16 +548,19 @@ async function compareUserRecent(userId){
                 console.log("-------achievements----");
                 
                 
-                //TOP_PP_MAP에서 가져온 TOP_PP_NUMBER등 pp
-                let top_N_PP = TOP_PP_MAP.get(userId)[TOP_PP_NUMBER-1];
-                //console.log(`top ${TOP_PP_NUMBER} PP : ${top_N_PP} / achievements[${i}] : ${getData[0].pp}`);
+                //TOP50_PP_MAP에서 가져온 osu_userRankNum[username]등 pp
+                let top_N_PP = TOP50_PP_MAP.get(userId)[osu_userRankNum[username]-1];
+                //console.log(`top ${osu_userRankNum[username]} PP : ${top_N_PP} / achievements[${i}] : ${getData[0].pp}`);
     
     
-                // 최고기록 30등의 pp량을 넘는 pp를 먹은 경우
+                // 최고기록 osu_userRankNum[username]등의 pp량을 넘는 pp를 먹은 경우
+
+
+                // 최고 기록이 2개 이상인 경우, 최고 기록 등수가 +1이 됨.
 
                 if (+getData[0].pp > +top_N_PP){
-                    // TOP_PP_MAP 에 getData[0].pp 추가 후, 정렬
-                    let editedNpplist = TOP_PP_MAP.get(userId)
+                    // TOP50_PP_MAP 에 getData[0].pp 추가 후, 정렬
+                    let editedNpplist = TOP50_PP_MAP.get(userId)
                     editedNpplist.push(getData[0].pp);
                     editedNpplist.sort((a, b) => b - a);
 
@@ -442,17 +568,32 @@ async function compareUserRecent(userId){
                     editedNpplist.pop();
                     let updatedRank = editedNpplist.indexOf(getData[0].pp);
 
-                    // 수정한 TOP_PP_MAP 데이터 적용
-                    TOP_PP_MAP.set(userId, editedNpplist);
+                    // 수정한 TOP50_PP_MAP 데이터 적용
+                    TOP50_PP_MAP.set(userId, editedNpplist);
 
-                    console.log(`${updatedRank} 번째 pp가 갱신되었습니다!`);
+                    const resultEmbed = new EmbedBuilder()
+                        .setColor(0x0099ff) // 임베드 바 색깔
+                        .setTitle(`osu! 실시간 감지 유저 정보`)
+                        .setDescription(`osu! 실시간 감지 유저 정보`)
+                        .addFields(
+                            {   
+                                name: `osu! 기록 갱신 알림` , value: `${username}님이 ${updatedRank+1} 번째 최고기록이 갱신되었습니다!\n획득 pp : ${getData[0].pp} / ${osu_userRankNum[username]}위 pp : ${top_N_PP}`,
+                                name: `상세 점수`, value : `Rank : ${getData[0].rank} / FULL COMBO : ${getData[0].maxcombo} / Mods : ${getData[0].enabled_mods}, `,
+                                name: `상세 점수`, value: `300 : ${getData[0].count300} / 100 : ${getData[0].count100} / 50 : ${getData[0].count50} / miss : ${getData[0].countmiss}`,
+                            },
+                        );
+                    
+                    await interaction.reply({ embeds: [resultEmbed] });
+
+                    console.log(`${updatedRank+1} 번째 pp가 갱신되었습니다!`);
                     
 
-                    console.log(`${getData[0].username}님이 최고 성과 ${updatedRank}등의 pp 기록을 갱신함!`);
+                    console.log(`${getData[0].username}님이 최고 성과 ${updatedRank+1}등의 pp 기록을 갱신함!`);
                     console.log("300 : " + getData[0].count300 + " / 100 : "+getData[0].count100+" / 50 : "+getData[0].count50+" / miss : "+getData[0].countmiss);
                     // Mods checkMod() 구현 미완료
                     //console.log("Mods : "+ checkMod(getData[0].enabled_mods));
-                    console.log("획득 pp : "+getData[0].pp + ` / 최고 ${TOP_PP_NUMBER}위 pp : ` +top_N_PP);
+                    console.log("획득 pp : "+getData[0].pp + ` / ${osu_userRankNum[username]}위 pp : ` +top_N_PP);
+                    
                 }
 
                 // 반복되는 recent 데이터가 없는 경우, 데이터 검사 시행
@@ -493,7 +634,7 @@ function checkMod (mods_num){
 async function getUserRecent(userId){
     try {
         let response = await fetch(URL_get_user_recent.replace("userId",userId), requestHeader_GET);
-
+        CURRENT_API_COUNTER++;
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
@@ -519,6 +660,7 @@ async function getUserRecent(userId){
 function showBeatmapInfo(beatmapSetNum){
     fetch(URL_get_beatmap.replace("beatmapsetId",beatmapSetNum), requestHeader_GET)
     .then(response => {
+        CURRENT_API_COUNTER++;
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }

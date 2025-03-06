@@ -1,9 +1,11 @@
-const { SlashCommandBuilder } = require('@discordjs/builders');
-const { EmbedBuilder } = require('@discordjs/builders');
+const { token } = require('../data.json');
+const { REST, Routes } = require('discord.js');
+
+const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
-		.setName('activatemodes')
+		.setName("실시간모드")
 		.setDescription('실시간 모드를 활성화합니다.')
 		.addNumberOption(option => 
 			option.setName('mode')

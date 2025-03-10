@@ -6,7 +6,6 @@ let { osu_userId, osu_userRankNum, osu_userRankPP } = require('./data.json');
 const fs = require('fs');
 const path = require('path');
 
-// OSU_USERRANKNUM = 1 ~ 50
 
 // 분당 최대 API 요청 횟수
 // 비트맵 정보 제공 API는 포함되지 않았으므로, API 횟수 제한을 초과할 위험성이 존재함
@@ -443,10 +442,22 @@ client.on('messageCreate', async message => {
                     { name: '\u200B', value: '\u200B' },
                 )
                 
+                let toolonginfo = "";
+
+                if (numberOfDiff > 24){
+                   toolonginfo = "\n 비트맵이 너무 많아서 3성 이상, 8성 이하로 축약함.";
+                   diffRatings = diffRatings.filter(num => num >= 3 && num <= 8);
+                   numberOfDiff = diffRatings.length;
+                   if (numberOfDiff > 24) {
+                        let beatmapAmount = numberOfDiff;
+                        numberOfDiff = 24;
+                        toolonginfo = `\n비트맵이 너무 많아서 3성 이상, 8성 이하로 축약함.\n근데 축약해도 너무 많아서 ${beatmapAmount-24}개 짤림...`;
+                   }
+                }
 
                 // 각각의 난이도 addFields, 난이도 , pp 계산
                 for (let i=0; i<numberOfDiff; i++){
-                    let starRating = parseFloat(data[i].difficultyrating);
+                    let starRating = parseFloat(diffRatings[i]);
  
                     // pp 계산 구현 실패
 
@@ -467,7 +478,7 @@ client.on('messageCreate', async message => {
                     beatmapinfoEmbed
                         .setTitle(data[0].title+"\n < osu! beatmap info > ")
                         .setURL(`https://osu.ppy.sh/beatmapsets/${beatmapsetId}#osu/${beatmapId}`)
-                        .setDescription("legnth - " + parseInt(data[0].total_length/60) + ":" + data[0].total_length%60)
+                        .setDescription("legnth - " + parseInt(data[0].total_length/60) + ":" + data[0].total_length%60 + toolonginfo)
                         .setImage(`https://assets.ppy.sh/beatmaps/${beatmapsetId}/covers/cover.jpg`)
                         .setThumbnail(`https://b.ppy.sh/thumb/${beatmapsetId}.jpg`)
                         .setTimestamp()

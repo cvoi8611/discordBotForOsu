@@ -1,0 +1,17 @@
+const { SlashCommandBuilder } = require('discord.js');
+
+module.exports = {
+	data: new SlashCommandBuilder()
+		.setName("유저_등수등록")
+		.setDescription('실시간 감지에 특정될 등수를 설정합니다.')
+		.addStringOption(option => 
+			option.setName('user')
+				.setDescription('유저명을 입력하세요.')
+				.setRequired(true))
+		.addNumberOption(option => 
+			option.setName('rank_num')
+				.setDescription('1 ~ 50 사이의 숫자를 입력하세요.')
+				.setRequired(true)),
+	async execute(interaction) {
+	},
+};

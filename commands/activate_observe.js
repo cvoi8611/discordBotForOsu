@@ -1,6 +1,3 @@
-const { token } = require('../data.json');
-const { REST, Routes } = require('discord.js');
-
 const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = {

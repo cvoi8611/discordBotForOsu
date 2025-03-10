@@ -1,0 +1,32 @@
+const { osu_userPP_rank } = require('../data.json')
+const { SlashCommandBuilder } = require('discord.js');
+
+module.exports = {
+	data: new SlashCommandBuilder()
+		.setName("유저_pp등록")
+		.setDescription('실시간 감지에 특정될 pp를 설정합니다.')
+		.addStringOption(option => 
+			option.setName('user')
+				.setDescription('유저명을 입력하세요.')
+				.setRequired(true)
+                .setAutocomplete(true))  // 자동완성 활성화
+		.addNumberOption(option => 
+			option.setName('rank_pp')
+				.setDescription('원하는 pp 수치를 입력하세요. (1 이상)')
+				.setRequired(true)),
+	async execute(interaction) {
+	},
+    async autocomplete(interaction) {
+        const focusedValue = interaction.options.getFocused(); // 현재 입력된 값
+        const osuUsers = ["cvoi8611","Bard User","ignite4740","hyunwoo3353","RE_WIND","wopoy","_Kuzuma_"];
+
+        // 입력값과 부분적으로 일치하는 유저명 필터링
+        const filtered = osuUsers.filter(user => user.startsWith(focusedValue));
+        // const filtered = osuUsers.filter(user => user.toLowerCase().includes(focusedValue.toLowerCase()));
+
+        // 최대 25개의 추천 목록을 응답으로 보냄
+        await interaction.respond(
+            filtered.map(user => ({ name: user, value: user })).slice(0, 10)
+        );
+    }
+};

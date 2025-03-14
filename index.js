@@ -121,6 +121,7 @@ client.on('interactionCreate', async interaction =>{
             // 추천 목록을 응답으로 보냄
             await interaction.respond(filtered.map(osuUsers => ({ name: osuUsers, value: osuUsers })),);
         }
+    }
 });
 
 

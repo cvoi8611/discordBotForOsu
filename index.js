@@ -12,7 +12,7 @@ let MAX_API_COUNTER = 50;
 let CURRENT_API_COUNTER = 0;
 let DEFAULT_RANKNUM = "50";
 let OBSERVING_AVAILABLE = false;
-let IS_USERBESTPP_UPDATED = true;
+let IS_USERBESTPP_UPDATED = false;
 
 const URL_get_beatmap = `https://osu.ppy.sh/api/get_beatmaps?k=${osu_token}`;
 const URL_get_user = `https://osu.ppy.sh/api/get_user?k=${osu_token}&u=userId`;
@@ -206,12 +206,6 @@ client.on('interactionCreate', async interaction =>{
         case '실시간모드':
             await reloadData();
             if (!IS_USERBESTPP_UPDATED){
-                await interaction.reply('/유저_등록 명령어를 우선적으로 실행하세요.')
-                break;
-            }
-            if (!OBSERVING_AVAILABLE){
-                OBSERVING_AVAILABLE = !OBSERVING_AVAILABLE;
-                
                 await reloadData();
                 registeredUsers = [];
                 // osu_userRankNum에 존재하는 내부 객체 갯수만큼 반복
@@ -231,6 +225,10 @@ client.on('interactionCreate', async interaction =>{
                         },
                     );
                 await interaction.reply({ embeds: [resultEmbed] });
+                IS_USERBESTPP_UPDATED = true;
+            }
+            if (!OBSERVING_AVAILABLE){
+                OBSERVING_AVAILABLE = !OBSERVING_AVAILABLE;
                 observePPChange();
             }
             else {
@@ -243,7 +241,7 @@ client.on('interactionCreate', async interaction =>{
             await reloadData();
             
             if (!IS_USERBESTPP_UPDATED){
-                await interaction.reply('/유저_등록 명령어를 우선적으로 실행하세요.')
+                await interaction.reply('/실시간모드 명령어를 우선적으로 실행하세요.')
                 break;
             }
             username = interaction.options.getString('user');

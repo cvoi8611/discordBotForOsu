@@ -10,21 +10,52 @@ const path = require('path');
 // 비트맵 정보 제공 API는 포함되지 않았으므로, API 횟수 제한을 초과할 위험성이 존재함
 let MAX_API_COUNTER = 50;
 let CURRENT_API_COUNTER = 0;
-
 let DEFAULT_RANKNUM = "50";
-
 let OBSERVING_AVAILABLE = false;
-let IS_USERBESTPP_UPDATED = false;
+let IS_USERBESTPP_UPDATED = true;
 
 const URL_get_beatmap = `https://osu.ppy.sh/api/get_beatmaps?k=${osu_token}`;
 const URL_get_user = `https://osu.ppy.sh/api/get_user?k=${osu_token}&u=userId`;
 const URL_get_user_best = `https://osu.ppy.sh/api/get_user_best?k=${osu_token}&u=userId&limit=OSU_USERRANKNUM`;
 const URL_get_user_recent = `https://osu.ppy.sh/api/get_user_recent?k=${osu_token}&u=userId&limit=30`;
 const URL_get_scores = `https://osu.ppy.sh/api/get_scores?k=${osu_token}&b=beatmapId&u=userId`;
+
+const Mods = {
+    None: 0,
+    NoFail: 1,
+    Easy: 2,
+    TouchDevice: 4,
+    Hidden: 8,
+    HardRock: 16,
+    SuddenDeath: 32,
+    DoubleTime: 64,
+    Relax: 128,
+    HalfTime: 256,
+    Nightcore: 576,
+    Flashlight: 1024,
+    Autoplay: 2048,
+    SpunOut: 4096,
+    Relax2: 8192,
+    Perfect: 16416,
+    Key4: 32768,
+    Key5: 65536,
+    Key6: 131072,
+    Key7: 262144,
+    Key8: 524288,
+    FadeIn: 1048576,
+    Random: 2097152,
+    Cinema: 4194304,
+    Target: 8388608,
+    Key9: 16777216,
+    Key10: 33554432,
+    Key1: 67108864,
+    Key3: 134217728,
+    Key2: 268435456,
+    ScoreV2: 536870912,
+    Mirror: 1073741824
+};
                     
 let SAVED_ACHIEVEMENTS = new Map();
-let TOP50_PP_MAP = new Map();
-
 const cooldowns = new Map();
 
 const requestHeader_GET = {
@@ -180,7 +211,26 @@ client.on('interactionCreate', async interaction =>{
             }
             if (!OBSERVING_AVAILABLE){
                 OBSERVING_AVAILABLE = !OBSERVING_AVAILABLE;
-                await interaction.reply('실시간 모드 켜짐');
+                
+                await reloadData();
+                registeredUsers = [];
+                // osu_userRankNum에 존재하는 내부 객체 갯수만큼 반복
+                Object.entries(osu_userId).forEach(([username, userId]) => {
+                    console.log(`유저 ${username}를 등록합니다.`);
+                    updateUserRankALL(username, userId);
+                    registeredUsers.push(`${username} `);
+                });
+                const resultEmbed = new EmbedBuilder()
+                    .setColor(0x0099ff)
+                    .setTitle(`osu! 실시간 감지 유저 정보`)
+                    .setDescription(`osu! 실시간 감지 유저 정보`)
+                    .setImage('https://images7.alphacoders.com/136/1369318.png')
+                    .addFields(
+                        {   
+                            name: `등록된 유저` , value: `${registeredUsers}`
+                        },
+                    );
+                await interaction.reply({ embeds: [resultEmbed] });
                 observePPChange();
             }
             else {
@@ -222,30 +272,8 @@ client.on('interactionCreate', async interaction =>{
             await interaction.reply({ embeds: [userInfoEmbed] });
             break;
         
-        case '유저_등록':
-            await reloadData();
-            IS_USERBESTPP_UPDATED = true;
-            registeredUsers = [];
-            // osu_userRankNum에 존재하는 내부 객체 갯수만큼 반복
-            Object.entries(osu_userId).forEach(([username, userId]) => {
-                console.log(`유저 ${username}를 등록합니다.`);
-                updateUserRankALL(username, userId);
-                registeredUsers.push(`${username} `);
-            });
-            const resultEmbed = new EmbedBuilder()
-                .setColor(0x0099ff) // 임베드 바 색깔
-                .setTitle(`osu! 실시간 감지 유저 정보`)
-                .setDescription(`osu! 실시간 감지 유저 정보`)
-                .setImage('https://images7.alphacoders.com/136/1369318.png')
-                // .setImage('https://i.imgur.com/TfBPbos.png')
-                // .setThumbnail('https://mblogthumb-phinf.pstatic.net/MjAyNDA5MTlfMTc5/MDAxNzI2NzU1MTMwNDk4.90FL04uDhuc6VetKuneKstJ02KXza4pEJq-SXNg_TwQg.pJzy0kgQ_15Nln5Xlj3Qs-cnITq9fHEU1fM0UaCsHy4g.JPEG/W%EB%A1%9C%EC%8B%9C%EB%8D%B0%EB%A0%88_10.mkv_000494786.jpg?type=w800')
-                .addFields(
-                    {   
-                        name: `등록된 유저` , value: `${registeredUsers}`
-                    },
-                );
-            await interaction.reply({ embeds: [resultEmbed] });
-            break;
+        // case '유저_등록':
+        //     break;
 
         case 'ping':
             await interaction.reply('Pong!');
@@ -414,7 +442,7 @@ client.on('messageCreate', async message => {
 
 async function reloadData() {
     try {
-        const data = await fs.readFileSync('./data.json');
+        const data = fs.readFileSync('./data.json');
         const parsedData = JSON.parse(data);
         
         // 전역 변수 업데이트
@@ -437,7 +465,13 @@ async function observePPChange(){
             console.log(`유저명: ${name} 의 기록을 관찰함. 유저 ID: ${userId}`);
             compareUserRecent(userId);
             console.log(`CURRENT_API_COUNTER : ${CURRENT_API_COUNTER}`);
-            await wait(8500); // 8.5초 대기 (8.5 x 7 = 59.5초)
+            // 차단 시간 확인
+            if (CURRENT_API_COUNTER > MAX_API_COUNTER) {
+                await interaction.reply({ files: [{ attachment: './src/blue_screen_aris.jpg' }] });
+                await interaction.reply("API 부하가 걸려 봇이 디졋ㅅ습ㄴㅣ다.\n30초만 기달려주새요");
+                await wait(30000) // 30초 대기
+            }
+            await wait(5000); // 5초 대기
         }
         CURRENT_API_COUNTER = 0;
     }
@@ -454,6 +488,10 @@ client.on('messageCreate', message => {
     //         updateUserBestPP(userId);
     //         message.reply(`유저: ${name} 의 pp가 업데이트 되었습니다!.`);
     //     }
+    if (message.content.match("CHECK MEMORY")){
+        const used = process.memoryUsage().heapUsed / 1024 / 1024;
+        console.log(`약 ${Math.round(used * 100) / 100} MB의 메모리를 사용중입니다.`);
+    }
 })
 
 async function updateUserRankALL(username, userId) {
@@ -469,35 +507,39 @@ async function updateUserRankALL(username, userId) {
             console.error("파일을 저장하는 중 오류 발생:", err);
             return;
         }
-        console.log("모든 유저들의 등록이 완료되었습니다!");
+        console.log(`${username}의 등록이 완료되었습니다!`);
     })
 }
 
 async function getBeatmapData(beatmapId, mods) {
-    const response = await fetch(URL_get_beatmap.concat(`&b=${beatmapId}&mods=${mods}`), requestHeader_GET);
-    CURRENT_API_COUNTER++;
-    if (!response.ok) {
-        throw new Error('Network response was not ok');
+    try {
+        const response = await fetch(URL_get_beatmap.concat(`&b=${beatmapId}&mods=${mods}`), requestHeader_GET);
+        CURRENT_API_COUNTER++;
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+
+
+        const pureData = await response.json();
+
+        const data =  pureData.map(({ 
+            beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating, 
+            version, creator, max_combo, total_length
+        }) => ({
+            beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating, 
+            version, creator, max_combo, total_length
+        }));
+        
+        return data;
     }
-
-
-    const pureData = await response.json();
-
-    const data =  pureData.map(({ 
-        beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating, 
-        version, creator, max_combo, total_length
-    }) => ({
-        beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating, 
-        version, creator, max_combo, total_length
-    }));
-    
-    return data;
+    catch (error) {
+        console.error('Error:', error);
+        return null; // 에러 발생 시 null 반환
+    }
 }
 
 async function getUserBestPP(userId, rankNum){
     try {
-        let username = Object.entries(osu_userId).find(([key, value]) => value === userId)?.[0];
-
         // 항상 최고기록 50개를 집계함
         const response = await fetch(URL_get_user_best.replace("userId",userId).replace("OSU_USERRANKNUM",50), requestHeader_GET);
         CURRENT_API_COUNTER++;
@@ -508,17 +550,6 @@ async function getUserBestPP(userId, rankNum){
         const data = await response.json();
         // console.log("data :\n"+JSON.stringify(data, null, 4));
 
-        // Update TOP50_PP_MAP
-        let pp_datas = [];
-        for (let i=0; i<50; i++){
-            //console.log(`${i}번째 데이터의 pp : `+data[i].pp);
-            pp_datas[i] = [data[i].beatmap_id, data[i].pp];
-        }
-
-        // 집계한 최고기록 50개는 TOP50_PP_MAP 에 전역변수로 저장해놓음
-        TOP50_PP_MAP.set(userId, pp_datas);
-        //console.log(`${username}'s TOP50_PP_MAP : ${TOP50_PP_MAP.get(userId)}`);
-
         return data[rankNum-1].pp;
         
     } catch(error) {
@@ -527,205 +558,123 @@ async function getUserBestPP(userId, rankNum){
     }
 }
 
-// 비트맵 id, 유저 명, 모드 유무, 300/100/50/miss 갯수, 콤보 갯수, rank, pp 를 전부 가져옴
-async function getAchievements(beatmapId, scoreId, userId){
+async function getUserTop50All(userId){
     try {
-        const response = await fetch((URL_get_scores.replace("userId",userId).replace("beatmapId",beatmapId)), requestHeader_GET);
+        // 항상 최고기록 50개를 집계함
+        const response = await fetch(URL_get_user_best.replace("userId",userId).replace("OSU_USERRANKNUM",50), requestHeader_GET);
         CURRENT_API_COUNTER++;
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
+
         const pureData = await response.json();
 
-        const data =  pureData.map(({ 
-            score_id, username, count300, count100, count50, countmiss, 
-            maxcombo, enabled_mods, user_id, rank, pp 
+        const data =  pureData.map(({
+            beatmap_id, score_id, count300, count100, count50, countmiss, 
+            maxcombo, enabled_mods, rank, pp 
         }) => ({
-            score_id, username, count300, count100, count50, countmiss, 
-            maxcombo, enabled_mods, user_id, rank, pp
+            beatmap_id, score_id, count300, count100, count50, countmiss, 
+            maxcombo, enabled_mods, rank, pp
         }));
-        // 비트맵 id, 유저 명, 모드 유무, 300/100/50/miss 갯수, 콤보 갯수, rank, pp
-        
-        // beatmap Id는 일치하나, score Id가 일치하지 않는 경우는, 맵에 한정하여 기록 갱신이 되지 않은 경우이므로 제외한다.
-        // ex) 최근 기록에서 180pp를 먹었으나, 이전 최고 기록이 250pp라서 180pp를 먹은 기록은 갱신 되지 않음
 
-        if (data[0].score_id !== scoreId){
-            console.log("해당 맵의 최고 기록과, recent 기록이 일치하지 않음 \/\/ 해당 맵의 최고 기록 pp : "+ data[0].pp);
-            data[0].pp = -1;
-            return data;
-
-            // 모든 정보를 return 하되, pp를 -1으로 설정함
-        }
-        // 해당 맵의 최고기록임을 확인함
-        console.log("해당 맵의 최고 기록과, recent 기록이 일치함 \/\/ 해당 맵의 최고 기록 pp : "+data[0].pp);
         return data;
-
         
-    }
-    catch (error) {
+    } catch(error) {
         console.error('Error:', error);
         return null; // 에러 발생 시 null 반환
     }
 }
 
-
-
-
-// 최근 기록 5개를 수집하여, pp를 수집하고 최고 30등의 pp보다 높으면 알림을 주는 기능
-// 최근 기록 5개를 저장하기 위한 SAVED_ACHIEVEMENTS
-// getUserRecent에서 기록을 가져옴 -> SAVED_ACHIEVEMENTS와 중복이 발생한다!
-// => 즉시 getUserRecent 종료, API 요청 횟수를 최소화함
+// 최근 기록 5개를 수집하여, pp를 수집하고 최고 50등의 pp보다 높으면 알림을 주는 기능
+// 최근 기록 5개를 저장하기 위한 SAVED_ACHIEVEMENTS와 비교해서 중복값이 존재하면 바로 함수 종료
 async function compareUserRecent(userId){
     try {
 
+        // [ {beatmap_id, user_id, score_id} ]
         let recentScores = await getUserRecent(userId);
-        // 중복되는 기록은 삭제
-        /*
-        const setA = new Set(recentScores.map(a => `${a.beatmap_id}-${a.score_id}`));
-        const newData = B.filter(b => !setA.has(`${b.beatmap_id}-${b.score_id}`));
-        */
+
+        // TOP 50의 모든
+        // beatmap_id, score_id, count300, count100, count50, countmiss, 
+        // maxcombo, enabled_mods, rank, pp
+        const user_Top50Score = await getUserTop50All(userId);
 
         // 최근 기록이 갱신되지 않았으면, 종료시킴
         if (recentScores.length < 1){
-            console.log('최근 기록이 갱신되지 않음.');
+            throw new Error ('최근 기록이 갱신되지 않음.');
         }
-        else {
-
-            // 최근 5개의 기록중 밑에서부터 하나씩 기록 조사
-            // 비트맵 id, 유저 명, 모드 유무, 300/100/50/miss 갯수, 콤보 갯수, rank, pp 를 전부 가져옴
-            // score_id, username, count300, count100, count50, countmiss, 
-            // maxcombo, enabled_mods, user_id, rank, pp
-            for (let i=0; i<recentScores.length; i++){
-                const getData = await getAchievements(recentScores[i].beatmap_id, recentScores[i].score_id, recentScores[i].user_id);
-
-                let username = getData[0].username;
-
-
-                
-                //기록 조사를 처음부터 한다면, SAVED_ACHIEVEMENTS에 userId에 해당되는 새로운 배열을 생성
-                if (!SAVED_ACHIEVEMENTS.has(userId)) {
-                    SAVED_ACHIEVEMENTS.set(userId, []);  // userId에 대한 배열을 초기화
-                }
-                // 중복 검사, 만약 중복되는 경우가 있다면 getAchievements 작업을 종료함
-                if (SAVED_ACHIEVEMENTS.get(userId).includes(recentScores[i].score_id)) {
-                    console.log("중복 자료 발견함 종료.");
-                    break;
-                }
-                SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);
-                
-                // data.json 에서 가져온 설정된 50위 pp
-                await reloadData();
-                let rankPP = osu_userRankPP[userId];
-    
-                // 최고기록 osu_userRankNum[username]등의 pp량을 넘는 pp를 먹은 경우
-                // 최고 기록이 2개 이상인 경우, 최고 기록 등수가 +1이 됨.
-
-                if (+getData[0].pp > +rankPP){
-
-                    // 저장된 50등까지의 pp list를 가져옴
-                    // [ beatmap_id, pp ]
-                    let edited_50_pp_list = TOP50_PP_MAP.get(userId);
-
-
-                    // 정확도 계산
-                    // (300 notes*300 + 100 notes*100 + 50 notes*50) / (ALL notes * 300)
-                    let n300 = parseInt(getData[0].count300);
-                    let n100 = parseInt(getData[0].count100);
-                    let n50 = parseInt(getData[0].count50);
-                    let n0 = parseInt(getData[0].countmiss);
-                    let nALL = n300 + n100 + n50 + n0;
-
-                    let accuracy = ((n300*300 + n100*100 + n50*50) / (nALL * 300) * 100).toFixed(2);
-                    
-                    // 위 기록과 연관된 비트맵 관련 정보도 다 뽑아버림
-                    // beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating,
-                    // version, creator, max_combo, total_length
-                    const filteredBeatmapData = await getBeatmapData(recentScores[i].beatmap_id,getData[0].enabled_mods);
-                    const beatmapData = filteredBeatmapData[0];
-
-                    // pp는 낮으나, Score은 더 높게 나온 경우 예외 처리
-                    // beatmap_id 는 같으나, pp수치가 낮은 경우 이를 무효처리함
-
-  
-                    let newRecord = [beatmapData.beatmap_id, getData[0].pp];
-                    console.log(`newRecord : ${newRecord}`);
-
-                    // 50위 내의 기록을 새로 갱신한 경우
-                    // ex) 36위의 기록을 12위 기록으로 새로 갱신함. (37위 아래는 변동이 없어야 함)
-                    let existingEntry = edited_50_pp_list.find(entry => entry[0] === newRecord[0]);
-
-                    if (existingEntry){
-
-                        // 기록된 50위 기록이 newRecord와 동일한 경우
-                        if (existingEntry[1] === getData[0].pp){
-                            console.log("기존 기록과 동일한 기록임을 확인");
-                            break;
-                        }// 기록된 50위 기록이 newRecord와 동일한 경우
-                        else if (existingEntry[1] > getData[0].pp){
-                            console.log("기존 기록보다 낮은 pp임을 확인");
-                            break;
-                        }
-                        console.log(`50위권 내의 기록이 새로 갱신됨. ${existingEntry[1]} pp => ${getData[0].pp} pp`);
-                        existingEntry[1] = newRecord[1];
-                    }
-                    else {
-                        edited_50_pp_list.push(newRecord);
-                    }
-                    edited_50_pp_list.sort((a, b) => b[1] - a[1]);
-                    
-
-                    // 50위 내의 기록 갱신이 아닌 경우 가장 적은 데이터 1개 삭제
-                    if (existingEntry === undefined) edited_50_pp_list.pop();
-                    // (edited_50_pp_list.length > 50) 도 가능
-                    
-                    let updatedRank = edited_50_pp_list.findIndex(item => item[1] === getData[0].pp);
-
-                    console.log(updatedRank);
-                    console.log(typeof(updatedRank));
-
-                    if (updatedRank > 51 || updatedRank < 0){
-                        updatedRank = "님 근데 이거 나오면 안됨 이거 버그임;;;";
-                    }
-                    else {
-                        updatedRank++;
-                    }
-
-                    // 초기화 후 수정한 TOP50_PP_MAP 데이터 적용
-                    TOP50_PP_MAP.delete(userId);
-                    TOP50_PP_MAP.set(userId, edited_50_pp_list);
-
-
-                    const checkedMode = await checkMods(getData[0].enabled_mods);
-                    const checkedCombo = await checkCombo(getData[0].maxcombo, beatmapData.max_combo);
-
-                    let resultEmbed = new EmbedBuilder()
-                        .setColor(0x0099ff) // 임베드 바 색깔
-                        .setTitle(`osu! 실시간 감지 유저 정보`)
-                        .setDescription(`osu! 실시간 감지 유저 정보`)
-                        .setImage(`https://assets.ppy.sh/beatmaps/${beatmapData.beatmapset_id}/covers/cover.jpg`)
-                        .addFields(
-                            
-                            { name: '\u200B', value: '\u200B' },
-                            { name: `osu! 기록 갱신 알림` , value: `${getData[0].username}님이 ${updatedRank} 번째 최고기록이 갱신되었습니다!\n
-                            획득 pp : ${bold(getData[0].pp)}  |  ${osu_userRankNum[username]}위 pp : ${rankPP}` },
-                            { name: '\u200B', value: '\u200B' },
-                            { name: '달성한 맵 정보', value: `${beatmapData.title} - ${beatmapData.artist}` },
-                            { name: `${beatmapData.version}`, value : `by ${beatmapData.creator} - ${(+beatmapData.difficultyrating).toFixed(2)}★`},
-                            { name: '\u200B', value: '\u200B' },
-                            { name: '달성한 맵 링크', value: `https://osu.ppy.sh/beatmapsets/${beatmapData.beatmapset_id}#osu/${beatmapData.beatmap_id}` },
-                            { name: '\u200B', value: '\u200B' },
-                            { name: `상세 점수`, value : `Rank : ${getData[0].rank}   |   Accuracy : ${accuracy}%\nCOMBO : ${checkedCombo} \n Mods : ${checkedMode}\n
-                            [300] : ${getData[0].count300} | [100] : ${getData[0].count100} | [50] : ${getData[0].count50} | [miss] : ${getData[0].countmiss}` }
-                            
-                        );
-                    
-                    //osu 맵 정보 인식 및 Map Number 추출, 맵 정보 출력 코드
-                    const channel = await client.channels.fetch(osu_channel);
-                    await channel.send({ embeds: [resultEmbed] });
-                }
-
-                // 반복되는 recent 데이터가 없는 경우, 데이터 검사 시행
+        // 최근 5개의 기록중 밑에서부터 하나씩 기록 조사
+        for (let i=0; i<recentScores.length; i++){
+            console.log(`recent score id : ${recentScores[i].score_id}`);
+            
+            // 중복 검사 구간
+            // 기록 조사를 처음부터 한다면, SAVED_ACHIEVEMENTS에 userId에 해당되는 새로운 배열을 생성
+            if (!SAVED_ACHIEVEMENTS.has(userId)) {
+                SAVED_ACHIEVEMENTS.set(userId, []);  // userId에 대한 배열을 초기화
             }
+            // 중복 검사, 만약 중복되는 경우가 있다면 getAchievements 작업을 종료함
+            if (SAVED_ACHIEVEMENTS.get(userId).includes(recentScores[i].score_id)) {
+                console.log("중복 자료 발견함 종료.");
+                break;
+            }
+            SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);    
+            
+    
+            
+            
+            // data.json 에서 가져온 설정된 50위 pp를 가져옴
+            await reloadData();
+            let rankPP = osu_userRankPP[userId];
+
+            // 내 최고 50위 순위권 내에 존재하는 score인 경우, pp 기록을 갱신한 경우로 확인
+            
+            const newRecordIndex = user_Top50Score.findIndex(item => item.score_id === recentScores[i].score_id);
+            if (newRecordIndex !== -1){
+                const newRecordData = user_Top50Score[newRecordIndex];
+                const username = Object.entries(osu_userId).find(([name, id]) => id === userId)?.[0];
+
+                
+                
+                let accuracy = checkAccuracy(n300, n100, n50, n0);
+                
+                // 위 기록과 연관된 비트맵 관련 정보도 다 뽑아버림
+                // beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating,
+                // version, creator, max_combo, total_length
+                const filteredBeatmapData = await getBeatmapData(newRecordData.beatmap_id,newRecordData.enabled_mods);
+                const beatmapData = filteredBeatmapData[0];
+
+                let newRecord = [beatmapData.beatmap_id, newRecordData.pp];
+                console.log(`newRecord : ${newRecord}`);
+
+                let updatedRank = newRecordIndex+1;
+
+                const checkedMode = checkMods(newRecordData.enabled_mods);
+                let checkedCombo = checkCombo(newRecordData.maxcombo, beatmapData.max_combo);
+                if (checkedCombo == "FULL COMBO") checkedCombo = bold(checkedCombo);
+
+                let resultEmbed = new EmbedBuilder()
+                    .setColor(0x0099ff) // 임베드 바 색깔
+                    .setTitle(`osu! 실시간 감지 유저 정보`)
+                    .setDescription(`osu! 실시간 감지 유저 정보`)
+                    .setImage(`https://assets.ppy.sh/beatmaps/${beatmapData.beatmapset_id}/covers/cover.jpg`)
+                    .addFields(
+                        
+                        { name: '\u200B', value: '\u200B' },
+                        { name: `osu! 기록 갱신 알림` , value: `${username}님이 ${updatedRank} 번째 최고기록이 갱신되었습니다!\n
+                        획득 pp : ${bold(newRecordData.pp)}  |  ${osu_userRankNum[username]}위 pp : ${rankPP}` },
+                        { name: '\u200B', value: '\u200B' },
+                        { name: '달성한 맵 정보', value: `${beatmapData.title} - ${beatmapData.artist}` },
+                        { name: `${beatmapData.version}`, value : `by ${beatmapData.creator} - ${(+beatmapData.difficultyrating).toFixed(2)}★`},
+                        { name: '\u200B', value: '\u200B' },
+                        { name: '달성한 맵 링크', value: `https://osu.ppy.sh/beatmapsets/${beatmapData.beatmapset_id}#osu/${beatmapData.beatmap_id}` },
+                        { name: '\u200B', value: '\u200B' },
+                        { name: `상세 점수`, value : `Rank : ${newRecordData.rank}   |   Accuracy : ${accuracy}%\nCOMBO : ${checkedCombo} \n Mods : ${checkedMode}\n
+                        [300] : ${newRecordData.count300} | [100] : ${newRecordData.count100} | [50] : ${newRecordData.count50} | [miss] : ${newRecordData.countmiss}` }  
+                    );
+                //osu 맵 정보 인식 및 Map Number 추출, 맵 정보 출력 코드
+                const channel = await client.channels.fetch(osu_channel);
+                await channel.send({ embeds: [resultEmbed] });
+            }
+            // 반복되는 recent 데이터가 없는 경우, 데이터 검사 시행
         }
     }
     catch (error) {
@@ -734,31 +683,24 @@ async function compareUserRecent(userId){
     }
 }
 
+// 정확도 계산 함수
+// (300 notes*300 + 100 notes*100 + 50 notes*50) / (ALL notes * 300)
+function checkAccuracy(n300, n100, n50, n0){
+    let nALL = n300 + n100 + n50 + n0;
 
-// 정적으로 구현하였으나 이후에 계산식을 넣어서 모든 경우에 대해 모드를 산출 할 수 있어야 함
-async function checkMods (mods_num){
-    const Modes ={
-            "0" : "None",
-            "1" : "NoFail",
-            "2" : "Easy",
-            "8" : "Hidden",
-            "9" : "Hidden & NoFail",
-            "16" : "HardRock",
-            "24" : "Hidden & HardRock",
-            "64" : "DoubleTime",
-            "72" : "Hidden & DoubleTime",
-            "576" : "NightCore",
-            "580" : "Hidden & NightCore",
-    }
-    if (!Object.keys(Modes).includes(mods_num)){
-        let IDK = "몰?루";
-        return IDK;
-    }
-    let convertMods = Modes[mods_num];
+    return ((n300*300 + n100*100 + n50*50) / (nALL * 300) * 100).toFixed(2);
+}
+
+// 모드 체크 함수
+function checkMods (mods_num){
+    let convertMods = Object.keys(Mods)
+        .filter(mod => (mods_num & Mods[mod]) !== 0)
+        .join(", ");
     return convertMods;
 }
 
-async function checkCombo(userCombo, mapCombo){
+// 콤보 체크 함수
+function checkCombo(userCombo, mapCombo){
     if (userCombo == mapCombo){
         return "FULL COMBO";
     }
@@ -784,7 +726,7 @@ async function getUserRecent(userId){
         })
 
         let getScores = data
-            .slice(0, 10)
+            .slice(0, 5)
             .map(({ beatmap_id, user_id, score_id }) => ({ beatmap_id, user_id, score_id }));
 
         return getScores;

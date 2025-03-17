@@ -598,7 +598,8 @@ async function compareUserRecent(userId){
 
         // 최근 기록이 갱신되지 않았으면, 종료시킴
         if (recentScores.length < 1){
-            throw new Error ('최근 기록이 갱신되지 않음.');
+            console.log('최근 기록이 갱신되지 않음.');
+            return;
         }
         // 최근 5개의 기록중 밑에서부터 하나씩 기록 조사
         for (let i=0; i<recentScores.length; i++){
@@ -632,7 +633,7 @@ async function compareUserRecent(userId){
 
                 
                 
-                let accuracy = checkAccuracy(n300, n100, n50, n0);
+                let accuracy = checkAccuracy(newRecordData.count300, newRecordData.count100, newRecordData.count50, newRecordData.countmiss);
                 
                 // 위 기록과 연관된 비트맵 관련 정보도 다 뽑아버림
                 // beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating,

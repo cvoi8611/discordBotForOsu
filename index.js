@@ -632,7 +632,6 @@ async function compareUserRecent(userId){
                 const username = Object.entries(osu_userId).find(([name, id]) => id === userId)?.[0];
 
                 
-                
                 let accuracy = checkAccuracy(newRecordData.count300, newRecordData.count100, newRecordData.count50, newRecordData.countmiss);
                 
                 // 위 기록과 연관된 비트맵 관련 정보도 다 뽑아버림
@@ -685,9 +684,11 @@ async function compareUserRecent(userId){
 // 정확도 계산 함수
 // (300 notes*300 + 100 notes*100 + 50 notes*50) / (ALL notes * 300)
 function checkAccuracy(n300, n100, n50, n0){
-    let nALL = n300 + n100 + n50 + n0;
-
-    return ((n300*300 + n100*100 + n50*50) / (nALL * 300) * 100).toFixed(2);
+    let nALL = Number(n300) + Number(n100) + Number(n50) + Number(n0);
+    let accuracy = (((n300*300 + n100*100 + n50*50) / (nALL * 300)) * 100).toFixed(2);
+    console.log(`300 : ${n300}, 100 : ${n100}, 50 : ${n50}, miss : ${n0}`);
+    console.log(accuracy);
+    return accuracy;
 }
 
 // 모드 체크 함수

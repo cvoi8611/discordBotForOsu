@@ -1,4 +1,4 @@
-const { REST, Routes } = require('discord.js');
+const { REST, Routes, NewsChannel } = require('discord.js');
 const { Client, Collection ,Events, GatewayIntentBits, Message, MessageCollector, MessageAttachment, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { blockQuote, bold, italic, quote, spoiler, strikethrough, underline, subtext } = require('discord.js');
 const { clientId, guildId, token, osu_token, osu_channel} = require('./config.json');
@@ -36,7 +36,7 @@ const Mods = {
     Autoplay: 2048,
     SpunOut: 4096,
     Relax2: 8192,
-    Perfect: 16416,
+    Perfect: 16384,
     Key4: 32768,
     Key5: 65536,
     Key6: 131072,
@@ -509,9 +509,24 @@ async function updateUserRankALL(username, userId) {
     })
 }
 
+async function hasSelectedDiffIncreasingMods(mods) {
+    const targetMods = Mods.Nightcore | Mods.DoubleTime | Mods.Flashlight | Mods.HardRock;
+    console.log(`return : ${mods & targetMods}`);
+    return (mods & targetMods);
+}
+
 async function getBeatmapData(beatmapId, mods) {
     try {
-        const response = await fetch(URL_get_beatmap.concat(`&b=${beatmapId}&mods=${mods}`), requestHeader_GET);
+        // if mods incresing difficulty
+        let prevResponse;
+        const checkedMods = await hasSelectedDiffIncreasingMods(mods);
+        if (checkedMods == 0){
+            prevResponse = await fetch(URL_get_beatmap.concat(`&b=${beatmapId}`), requestHeader_GET);
+        }
+        else {
+            prevResponse = await fetch(URL_get_beatmap.concat(`&b=${beatmapId}&mods=${checkedMods}`), requestHeader_GET);
+        }
+        const response = prevResponse;
         CURRENT_API_COUNTER++;
         if (!response.ok) {
             throw new Error('Network response was not ok');
@@ -693,6 +708,12 @@ function checkAccuracy(n300, n100, n50, n0){
 
 // 모드 체크 함수
 function checkMods (mods_num){
+    if (mods_num == 0){
+        return "None";
+    }
+    if (mods_num & Mods.Nightcore){
+        mods_num &= ~Mods.DoubleTime;
+    }
     let convertMods = Object.keys(Mods)
         .filter(mod => (mods_num & Mods[mod]) !== 0)
         .join(", ");

@@ -54,9 +54,18 @@
 |/유저_정보| username | 유저명과 실시간 감시 기능에 특정되는 기록을 보여줍니다.|
 |osu 맵 링크| osu beatmap url | osu 비트맵 또는 비트맵셋 링크를 올리면 맵의 대략적인 정보를 보여줍니다.|
 
+___
 ### 실시간 모드
 
-![AdiOSU_2](./src/images/info/discordbot_2_1.png)
+![AdiOSU_2](./src/images/info/discordbot_realtime1.png)
+
+- **첫 실행 시 나오는 화면**
+
+![AdiOSU_2](./src/images/info/discordbot_realtime2.png)
+
+- **실시간 모드 중, 신기록을 갱신하면 출력되는 메시지**
+
+___
 
 - 실시간 모드를 활성화하면 봇이 실행되어 일정 시간 간격으로 유저 기록 API를 주기적으로 조회합니다.
 
@@ -69,12 +78,16 @@
 
 - 해당 과정은 무한 루프 기반 폴링 구조로 동작하며, 봇이 종료되기 전까지 지속적으로 반복됩니다.
 
+___
+
 ### 유저_정보
 
-![AdiOSU_3](./src/images/info/discordbot_3_2.png) | ![AdiOSU_4](./src/images/info/discordbot_3_1.png)
+![AdiOSU_3](./src/images/info/discordbot_userstatus2.png) | ![AdiOSU_4](./src/images/info/discordbot_userstatus1.png)
 -- | -- |
 
-각각, 정상적으로 작동 된 경우와 아닌 경우의 output이다
+- **각각, 정상적으로 작동된 경우와 아닌 경우의 메시지**
+
+___
 
 - 기록 감시와 함께 유저의 메타 정보도 동시에 관리합니다.
 
@@ -89,9 +102,12 @@
 
 - 이를 통해 단순 기록 갱신뿐만 아니라, 유저 상태 변화 추적용 봇으로도 활용할 수 있습니다.
 
+___
+
 ### osu 맵 링크
 
-![AdiOSU_4](./src/images/info/discordbot_1_2.png)
+![AdiOSU_4](./src/images/info/discordbot_mapinfo.png)
+
 
 - 채팅에 osu! 비트맵 링크를 입력하면 해당 맵에 대한 정보를 자동으로 분석하여 출력합니다.
 

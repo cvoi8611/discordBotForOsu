@@ -1,10 +1,10 @@
-const { REST, Routes, NewsChannel } = require('discord.js');
-const { Client, Collection ,Events, GatewayIntentBits, Message, MessageCollector, MessageAttachment, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
-const { blockQuote, bold, italic, quote, spoiler, strikethrough, underline, subtext } = require('discord.js');
-const { clientId, guildId, token, osu_token, osu_channel} = require('./config.json');
-let { osu_userId, osu_userRankNum, osu_userRankPP } = require('./data.json');
-const fs = require('fs');
-const path = require('path');
+const { REST, Routes } = require ('discord.js');
+const { Client, Events, GatewayIntentBits, MessageAttachment, EmbedBuilder } = require('discord.js');
+const { bold } = require('discord.js');
+const { clientId, guildId, token, osu_token, osu_channel } = require('./config.json');
+let { osu_userId, osu_userRankNum, osu_userRankPP, osu_userRawPP, osu_userTotalRank, osu_userAccuracy } = require('./data.json');
+const { readdirSync, readFileSync, writeFile } = require('fs');
+const { join } = require('path');
 
 // MAX_API_COUNTER = 분당 최대 API 요청 횟수
 // 비트맵 정보 제공 API는 포함되지 않았으므로, API 횟수 제한을 초과할 위험성이 존재함
@@ -14,11 +14,14 @@ let DEFAULT_RANKNUM = "50";
 let OBSERVING_AVAILABLE = false;
 let IS_USERBESTPP_UPDATED = false;
 
+// 테스트 모드
+const TEST_MODE = false;
+
 const URL_get_beatmap = `https://osu.ppy.sh/api/get_beatmaps?k=${osu_token}`;
 const URL_get_user = `https://osu.ppy.sh/api/get_user?k=${osu_token}&u=userId`;
 const URL_get_user_best = `https://osu.ppy.sh/api/get_user_best?k=${osu_token}&u=userId&limit=OSU_USERRANKNUM`;
 const URL_get_user_recent = `https://osu.ppy.sh/api/get_user_recent?k=${osu_token}&u=userId&limit=30`;
-const URL_get_scores = `https://osu.ppy.sh/api/get_scores?k=${osu_token}&b=beatmapId&u=userId`;
+//const URL_get_scores = `https://osu.ppy.sh/api/get_scores?k=${osu_token}&b=beatmapId&u=userId`;
 
 const Mods = {
     None: 0,
@@ -84,17 +87,16 @@ function wait(ms) {
 client.once(Events.ClientReady, c => {
     //console.log(`Get Ready! Logged in as ${c.user.tag}`);
     console.log(`아리스 봇!, 구동되었습니다!`);
-
 });
 
 // 슬래쉬 ('/') 명령어 추가 코드
 
 const commands = [];
 
-const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+const commandsPath = join(__dirname, 'commands');
+const commandFiles = readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
-    const filePath = path.join(commandsPath, file);
+    const filePath = join(commandsPath, file);
     const command = require(filePath);
     // Set a new item in the Collection with the key as the command name and the value as the exported module
     if ('data' in command && 'execute' in command) {
@@ -136,19 +138,14 @@ client.on('ready', async () => {
 client.on('interactionCreate', async interaction =>{
     // 자동 완성 기능 (Auto Complete)
     if (interaction.isAutocomplete()){
-
         if (interaction.commandName == '유저_정보'){
             console.log("유저_정보 자동완성 확인");
-        
             let osuUsers = Object.keys(osu_userId);
-
             const focusedValue = interaction.options.getFocused();
-            // 입력값과 부분적으로 일치하는 유저명 필터링
             
-
+            // 입력값과 부분적으로 일치하는 유저명 필터링
             const filtered = osuUsers.filter(osuUsers => osuUsers.toLowerCase().startsWith(focusedValue.toLowerCase()));
-
-
+            
             // 추천 목록을 응답으로 보냄
             await interaction.respond(filtered.map(osuUsers => ({ name: osuUsers, value: osuUsers })),);
         }
@@ -160,11 +157,10 @@ client.on('interactionCreate', async interaction =>{
 client.on('interactionCreate', async interaction =>{
     if (!interaction.isCommand()) return;
 
-    
     // 메시지 읽는 코드
     // console.log(`[${message.guild.name}] ${message.author.tag}: ${message.content}`);
 
-    // 메시지 제한 코드
+    // Message Throttling Code
     ////////////////////////////////////////////
     const requestUserId = interaction.user.id;
     const now = Date.now();
@@ -181,8 +177,10 @@ client.on('interactionCreate', async interaction =>{
 
     // 차단 시간 확인
     if (now < userData.blockedUntil || CURRENT_API_COUNTER > MAX_API_COUNTER) {
-        await interaction.reply({ files: [{ attachment: './src/blue_screen_aris.jpg' }] });
-        await interaction.reply("요청을 너무 많아 받아 봇이 디졌습니다.");
+        await interaction.reply({
+             files: [{ attachment: '../images/error1.jpg' }],
+            content: "요청을 너무 많아 받아 봇이 디졌습니다."
+            });
         return;
     }
 
@@ -191,8 +189,10 @@ client.on('interactionCreate', async interaction =>{
     
     if (userData.timestamps.length >= maxRequests) {
         userData.blockedUntil = now + blockDuration; // 차단 설정
-        await interaction.reply({ files: [{ attachment: './src/blue_screen_aris2.jpg' }] });
-        await interaction.reply("너무 많은 요청을 보냈습니다! 30초 후 다시 시도하세요.");
+        await interaction.reply({ 
+            files: [{ attachment: '../images/error2.jpg' }] ,
+            content: "너무 많은 요청을 보냈습니다! 30초 후 다시 시도하세요."
+        });
         return;
     }
 
@@ -200,9 +200,7 @@ client.on('interactionCreate', async interaction =>{
     userData.timestamps.push(now);
 
     const commandName = interaction.commandName;
-    let username, userId, rankNum, rankPP;
     switch (commandName) {
-
         case '실시간모드':
             await reloadData();
             if (!IS_USERBESTPP_UPDATED){
@@ -211,20 +209,24 @@ client.on('interactionCreate', async interaction =>{
                 // osu_userRankNum에 존재하는 내부 객체 갯수만큼 반복
                 Object.entries(osu_userId).forEach(([username, userId]) => {
                     console.log(`유저 ${username}를 등록합니다.`);
-                    updateUserRankALL(username, userId);
+                    updateUserData(userId, username);
                     registeredUsers.push(`${username} `);
                 });
-                const resultEmbed = new EmbedBuilder()
-                    .setColor(0x0099ff)
-                    .setTitle(`osu! 실시간 감지 유저 정보`)
-                    .setDescription(`osu! 실시간 감지 유저 정보`)
-                    .setImage('https://images7.alphacoders.com/136/1369318.png')
-                    .addFields(
-                        {   
-                            name: `등록된 유저` , value: `${registeredUsers}`
-                        },
-                    );
-                await interaction.reply({ embeds: [resultEmbed] });
+                
+                if (!TEST_MODE) {
+                    const resultEmbed = new EmbedBuilder()
+                        .setColor(0x0099ff)
+                        .setTitle(`osu! 실시간 감지 유저 정보`)
+                        .setDescription(`osu! 실시간 감지 유저 정보`)
+                        .setImage('https://ac-p2.namu.la/20230821sac/d3c6f6bbb6e9d02730de092415b4fd875bfdbf3bd0523ec017d2a12079f73ddd.jpg?expires=1768283052&key=3jA12BAGhnpHQKARE9TEiA')
+                        .addFields(
+                            {   
+                                name: `등록된 유저` , value: `${registeredUsers}`
+                            },
+                        );
+                    await interaction.reply({ embeds: [resultEmbed] });
+                }
+                
                 IS_USERBESTPP_UPDATED = true;
             }
             if (!OBSERVING_AVAILABLE){
@@ -244,33 +246,38 @@ client.on('interactionCreate', async interaction =>{
                 await interaction.reply('/실시간모드 명령어를 우선적으로 실행하세요.')
                 break;
             }
-            username = interaction.options.getString('user');
-            userId = osu_userId[username];
-            rankNum = osu_userRankNum[username];
-            rankPP = osu_userRankPP[userId];
+            const username = interaction.options.getString('user');
+            const userId = osu_userId[username];
+            const rankNum = osu_userRankNum[username];
+            const rankPP = osu_userRankPP[userId];
+            const raw_pp = osu_userRawPP[userId];
+            const total_rank = osu_userTotalRank[userId];
+            const accruacy = osu_userAccuracy[userId];
+
             osuUsers = Object.keys(osu_userId);
             
             let userInfoEmbed = new EmbedBuilder()
                 .setColor(0x0099ff) // 임베드 바 색깔
                 .setTitle('오류 발생')
-                .setImage('https://i.imgur.com/TfBPbos.png')
+                //https://i.imgur.com/TfBPbos.png
+                .setImage('https://pbs.twimg.com/media/FbAQ1VuaAAEgtYr?format=jpg&name=small')
                 .setDescription(`유저를 찾을 수 없음`);
             if (osuUsers.includes(username)) {
                 userInfoEmbed = new EmbedBuilder()
                 .setColor(0x0099ff) // 임베드 바 색깔
-                    .setTitle(`osu! 실시간 감지 유저 정보`)
-                    .setDescription(`osu! 실시간 감지 유저 정보`)
-                    .setImage('https://i.imgur.com/TfBPbos.png')
+                    .setTitle(` - ${username}님의 정보 - `)
+                    .setImage('https://media.discordapp.net/attachments/1226953736094617732/1460488056476930048/discord_userstatus.gif?ex=696718ff&is=6965c77f&hm=ab1c1aca5650baedb6fa7ab9a3be7c41f3cf21ba67a873331f3bef74291009ed&=')
+                    .setDescription(`[osu! 유저 프로필 이동](https://osu.ppy.sh/users/${userId})`)
                     .addFields(
-                        {   
-                            name: `${username}님의 정보` , value: `최고기록 ${rankNum}등 이내의 기록(${rankPP}pp) 감지중`
-                        },
+                        {name: `Observer` , value: `현재 최고기록 ${rankNum}등 이내의 기록(${(+rankPP).toFixed(3)}pp) 감지중`},
+                        {name: `Status` , value : `세계 순위 : #${(+total_rank).toLocaleString()} | 총 pp : ${raw_pp}pp | 정확도 : ${(+accruacy).toFixed(3)}%`}
                     );
             }
             await interaction.reply({ embeds: [userInfoEmbed] });
             break;
         
         // case '유저_등록':
+        //    await reloadData();
         //     break;
 
         case 'ping':
@@ -314,7 +321,7 @@ client.on('messageCreate', async message => {
 
         // 차단 시간 확인
         if (now < userData.blockedUntil || CURRENT_API_COUNTER > MAX_API_COUNTER) {
-            await interaction.reply({ files: [{ attachment: './src/blue_screen_aris.jpg' }] });
+            await interaction.reply({ files: [{ attachment: '../images/error1.jpg' }] });
             await interaction.reply("요청을 너무 많아 받아 봇이 디졌습니다.");
             return;
         }
@@ -327,7 +334,7 @@ client.on('messageCreate', async message => {
         
         if ((userData.timestamps.length >= maxRequests)) {
             userData.blockedUntil = now + blockDuration; // 차단 설정
-            message.channel.send({ files: [{ attachment: './src/blue_screen_aris2.jpg' }] });
+            message.channel.send({ files: [{ attachment: '../images/error2.jpg' }] });
             message.channel.send("너무 많은 요청을 보냈습니다! 30초 후 다시 시도하세요.");
             return;
         }
@@ -416,13 +423,18 @@ client.on('messageCreate', async message => {
                         { name: data[i].version+"\nby "+data[i].creator, value: starRating.toFixed(2)+'★\n ', inline: true }
                     )
                 }
+                
+                const hour = parseInt(data[0].total_length/60);
+                const rawMinute = data[0].total_length%60;
+                const minute = rawMinute < 10 ? "0"+rawMinute : ""+rawMinute;
+                
 
                 // 전체적인 beatmap 정보 메시지로 출력 (Embeds로 출력함)
                 message.channel.send({ embeds: [
                     beatmapinfoEmbed
                         .setTitle(data[0].title+"\n < osu! beatmap info > ")
                         .setURL(`https://osu.ppy.sh/beatmapsets/${beatmapsetId}#osu/${beatmapId}`)
-                        .setDescription("legnth - " + parseInt(data[0].total_length/60) + ":" + data[0].total_length%60 + toolonginfo)
+                        .setDescription("length - " + hour + ":" + minute + toolonginfo)
                         .setImage(`https://assets.ppy.sh/beatmaps/${beatmapsetId}/covers/cover.jpg`)
                         .setThumbnail(`https://b.ppy.sh/thumb/${beatmapsetId}.jpg`)
                         .setTimestamp()
@@ -440,13 +452,14 @@ client.on('messageCreate', async message => {
 
 async function reloadData() {
     try {
-        const data = fs.readFileSync('./data.json');
-        const parsedData = JSON.parse(data);
-        
-        // 전역 변수 업데이트
-        osu_userId = parsedData.osu_userId;
-        osu_userRankNum = parsedData.osu_userRankNum;
-        osu_userRankPP = parsedData.osu_userRankPP;
+        const data = JSON.parse(readFileSync('./data.json', 'utf-8'));
+        // data.json으로부터 전역 변수 업데이트
+        osu_userId = data.osu_userId;
+        osu_userRankNum = data.osu_userRankNum;
+        osu_userRankPP = data.osu_userRankPP;
+        osu_userRawPP = data.osu_userRawPP;
+        osu_userTotalRank = data.osu_userTotalRank;
+        osu_userAccuracy = data.osu_userAccuracy;
 
     } catch (err) {
         console.error('Error reading JSON file:', err);
@@ -455,7 +468,6 @@ async function reloadData() {
 
 
 async function observePPChange(){
-    let counter = 0;
     console.log("Observing Activated");
 
     while (OBSERVING_AVAILABLE){
@@ -465,11 +477,16 @@ async function observePPChange(){
             console.log(`CURRENT_API_COUNTER : ${CURRENT_API_COUNTER}`);
             // 차단 시간 확인
             if (CURRENT_API_COUNTER > MAX_API_COUNTER) {
-                await interaction.reply({ files: [{ attachment: './src/blue_screen_aris.jpg' }] });
+                await interaction.reply({ files: [{ attachment: '../images/error1.jpg' }] });
                 await interaction.reply("API 부하가 걸려 봇이 디졋ㅅ습ㄴㅣ다.\n30초만 기달려주새요");
                 await wait(30000) // 30초 대기
             }
-            await wait(5000); // 5초 대기
+            //await wait(5000); // 5초 대기
+            
+            // 1분에 60회의 제한이 존재, 유저들의 명령어도 1개씩 요청 횟수를 소모하므로 1분에 10회의 명령어 들어온다고 가정
+            // 50 / 등록된 유저 수 = 분당 요청 가능한 최대 횟수 이 최대이긴 한데
+            // 걍 30 / 등록된 유저수 = 1회 대기시간으로 설정함, 안전빵으로 ㅇㅇ
+            await wait(30000 / (Object.keys(osu_userId).length));
         }
         CURRENT_API_COUNTER = 0;
     }
@@ -478,7 +495,10 @@ async function observePPChange(){
 
 
 // 테스트용 코드, 메시지만 받으면 바로 구동됨
+// "CHECK MEMORY"
+
 client.on('messageCreate', message => {
+    if (!TEST_MODE) return;         // 테스트가 아닌 경우, 함수 종료
     if (message.author.bot) return; // 봇 메시지는 무시
     // if (message.content.match("test")){
     //     for (const [name, userId] of Object.entries(osu_userId)) {
@@ -490,26 +510,69 @@ client.on('messageCreate', message => {
         const used = process.memoryUsage().heapUsed / 1024 / 1024;
         console.log(`약 ${Math.round(used * 100) / 100} MB의 메모리를 사용중입니다.`);
     }
-})
+    if (message.content.match("json Parse")){
+        console.log(JSON.parse(readFileSync('./data.json', 'utf-8')));
+    }
+});
 
-async function updateUserRankALL(username, userId) {
-    let top_N_PP = await getUserBestPP(userId, DEFAULT_RANKNUM);
-    console.log (`top ${osu_userRankNum[username]} PP : ` + top_N_PP);
-        
-    data = JSON.parse(fs.readFileSync('./data.json'));
+// 모든 유저의 정보를 data.json에 동기화하는 함수
 
-    data.osu_userRankNum[username] = DEFAULT_RANKNUM;
-    data.osu_userRankPP[userId] = top_N_PP;
-    fs.writeFile('./data.json', JSON.stringify(data, null, 4),  'utf8', (err) => {
-        if (err) {
-            console.error("파일을 저장하는 중 오류 발생:", err);
-            return;
-        }
-        console.log(`${username}의 등록이 완료되었습니다!`);
-    })
+async function writeAllUserData(userId, username, pp, rawPP, totalRank, accuracy){
+    try {
+        let data = JSON.parse(readFileSync('./data.json'));
+
+        data.osu_userRankPP[userId] = pp;
+        data.osu_userRawPP[userId] = rawPP;
+        data.osu_userTotalRank[userId] = totalRank;
+        data.osu_userAccuracy[userId] = accuracy;
+
+        writeFile('./data.json', JSON.stringify(data, null, 4),  'utf8', (err) => {
+            if (err) {
+                console.error("파일을 저장하는 중 오류 발생:", err);
+                return;
+            }
+        });
+    }
+    catch (error){
+        console.error("Error:", error);
+    }
+}
+
+// 특정 유저의 정보를 data.json에 동기화하는 함수
+
+async function updateUserData(userId, username){
+    try {
+        const top_N_PP = await getUserBestPP(userId, DEFAULT_RANKNUM);
+        const userData = await getUserData(userId);
+
+        let data = JSON.parse(readFileSync('./data.json'));
+
+        data.osu_userRankNum[username] = DEFAULT_RANKNUM;
+        data.osu_userRankPP[userId] = top_N_PP;
+        data.osu_userTotalRank[userId] = userData.pp_rank;
+        data.osu_userRawPP[userId] = userData.pp_raw;
+        data.osu_userAccuracy[userId] = userData.accuracy;
+
+        writeFile('./data.json', JSON.stringify(data, null, 4),  'utf8', (err) => {
+            if (err) {
+                console.error("파일을 저장하는 중 오류 발생:", err);
+                return;
+            }
+            console.log(`${username}의 등록이 완료되었습니다!`);
+        });
+    }
+    catch(error){
+        console.error("Error:",error);
+    }
 }
 
 async function hasSelectedDiffIncreasingMods(mods) {
+    try {
+
+    }
+    catch(error){
+        console.error("Error:",error);
+    }
     const targetMods = Mods.Nightcore | Mods.DoubleTime | Mods.Flashlight | Mods.HardRock;
     console.log(`return : ${mods & targetMods}`);
     return (mods & targetMods);
@@ -598,6 +661,29 @@ async function getUserTop50All(userId){
     }
 }
 
+async function getUserData(userId){
+    try{
+        const response = await fetch(URL_get_user.replace("userId",userId), requestHeader_GET);
+        CURRENT_API_COUNTER++;
+        if (!response.ok){
+            throw new Error("Network response was not ok");
+        }
+
+        const pureData = await response.json();
+
+        const data =  pureData.map(({
+            username, level, pp_raw, accuracy, pp_rank, pp_country_rank
+        }) => ({
+            username, level, pp_raw, accuracy, pp_rank, pp_country_rank
+        }));
+        return data[0];
+    }
+    catch(error){
+        console.error('Error:', error);
+        return null;
+    }
+}
+
 // 최근 기록 5개를 수집하여, pp를 수집하고 최고 50등의 pp보다 높으면 알림을 주는 기능
 // 최근 기록 5개를 저장하기 위한 SAVED_ACHIEVEMENTS와 비교해서 중복값이 존재하면 바로 함수 종료
 async function compareUserRecent(userId){
@@ -636,18 +722,54 @@ async function compareUserRecent(userId){
             
             
             // data.json 에서 가져온 설정된 50위 pp를 가져옴
-            await reloadData();
-            let rankPP = osu_userRankPP[userId];
+            // await reloadData();
+            // let rankPP = osu_userRankPP[userId];
 
             // 내 최고 50위 순위권 내에 존재하는 score인 경우, pp 기록을 갱신한 경우로 확인
             
             const newRecordIndex = user_Top50Score.findIndex(item => item.score_id === recentScores[i].score_id);
             if (newRecordIndex !== -1){
                 const newRecordData = user_Top50Score[newRecordIndex];
+                const top50PPData = user_Top50Score[49];
+                const rankPP = (+top50PPData.pp).toFixed(3);
+                const recordedUserData = await getUserData(userId);
                 const username = Object.entries(osu_userId).find(([name, id]) => id === userId)?.[0];
 
+                //console.log(recordedUserData);
+
+                await reloadData();
                 
-                let accuracy = checkAccuracy(newRecordData.count300, newRecordData.count100, newRecordData.count50, newRecordData.countmiss);
+                // 이거 갱신 안되는 문제
+                const prevUserRawPP = osu_userRawPP[userId];
+                const prevUserTotalRank = osu_userTotalRank[userId];
+                const prevUserAccuracy = (+osu_userAccuracy[userId]).toFixed(3);
+
+                
+                //console.log(`osu_userAccuracy[userId] : ${osu_userAccuracy[userId]}`);
+                //console.log(`prevUserAccuracy : ${prevUserAccuracy}`);
+
+                const currentUserRawPP = recordedUserData.pp_raw;
+                const currentUserTotalRank = recordedUserData.pp_rank;
+                const currentRawUserAccuracy = recordedUserData.accuracy;
+                const currentUserAccuracy = (+recordedUserData.accuracy).toFixed(3);
+                //console.log(`currentUserRawPP : ${currentUserRawPP}`);
+                
+                await writeAllUserData(userId, username, rankPP, currentUserRawPP, currentUserTotalRank, currentRawUserAccuracy);
+
+                const rawdiffRawPP = (Number(currentUserRawPP) - Number(prevUserRawPP)).toFixed(3);
+                // #2000 -> #1945 means +#55
+                const rawdiffTotalRank = Number(prevUserTotalRank) - (Number(currentUserTotalRank));
+                const rawdiffUserAccuracy = (Number(currentUserAccuracy) - Number(prevUserAccuracy)).toFixed(3);
+
+
+                const diffRawPP = signFormat(rawdiffRawPP, 0);
+                const diffTotalRank = signFormat(rawdiffTotalRank, 1);
+                const diffUserAccuracy = signFormat(rawdiffUserAccuracy, 2);
+
+                
+
+                
+                const accuracy = checkAccuracy(newRecordData.count300, newRecordData.count100, newRecordData.count50, newRecordData.countmiss);
                 
                 // 위 기록과 연관된 비트맵 관련 정보도 다 뽑아버림
                 // beatmap_id, beatmapset_id, title, artist, bpm, difficultyrating,
@@ -655,34 +777,33 @@ async function compareUserRecent(userId){
                 const filteredBeatmapData = await getBeatmapData(newRecordData.beatmap_id,newRecordData.enabled_mods);
                 const beatmapData = filteredBeatmapData[0];
 
-                let newRecord = [beatmapData.beatmap_id, newRecordData.pp];
-                console.log(`newRecord : ${newRecord}`);
+                const newRecord = [beatmapData.beatmap_id, newRecordData.pp];
+                //console.log(`newRecord : ${newRecord}`);
 
-                let updatedRank = newRecordIndex+1;
+                const updatedRank = newRecordIndex+1;
 
-                const checkedMode = checkMods(newRecordData.enabled_mods);
-                let checkedCombo = checkCombo(newRecordData.maxcombo, beatmapData.max_combo);
-                if (checkedCombo == "FULL COMBO") checkedCombo = bold(checkedCombo);
+                const checkedMode = checkMods == "" ? `(${checkMods(newRecordData.enabled_mods)})` : "";
+                const checkedCombo = checkCombo(newRecordData.maxcombo, beatmapData.max_combo);
 
                 let resultEmbed = new EmbedBuilder()
                     .setColor(0x0099ff) // 임베드 바 색깔
-                    .setTitle(`osu! 실시간 감지 유저 정보`)
-                    .setDescription(`osu! 실시간 감지 유저 정보`)
+                    .setTitle(`${username}님이 ${updatedRank} 번째 최고기록을 갱신하였습니다!`)
+                    .setDescription(`[osu! 유저 프로필 이동](https://osu.ppy.sh/users/${userId})`)
                     .setImage(`https://assets.ppy.sh/beatmaps/${beatmapData.beatmapset_id}/covers/cover.jpg`)
                     .addFields(
-                        
                         { name: '\u200B', value: '\u200B' },
-                        { name: `osu! 기록 갱신 알림` , value: `${username}님이 ${updatedRank} 번째 최고기록이 갱신되었습니다!\n
-                        획득 pp : ${bold(newRecordData.pp)}  |  ${osu_userRankNum[username]}위 pp : ${rankPP}` },
+                        { name: `${beatmapData.title}`, value : `${beatmapData.version} - ${(+beatmapData.difficultyrating).toFixed(2)}★\n`},
+                        { name: `획득 pp : ${bold(newRecordData.pp)}  |  ${osu_userRankNum[username]}위 pp : ${rankPP}\n`,
+                        value: `총 pp : ${prevUserRawPP}pp -> ${currentUserRawPP}pp ${diffRawPP}\n
+                                순위 변동 : #${(+prevUserTotalRank).toLocaleString()} -> #${(+currentUserTotalRank).toLocaleString()} ${diffTotalRank}
+                                정확도 변동 : ${(+prevUserAccuracy).toFixed(3)}% -> ${(+currentUserAccuracy).toFixed(3)}% ${(diffUserAccuracy)}` },
                         { name: '\u200B', value: '\u200B' },
-                        { name: '달성한 맵 정보', value: `${beatmapData.title} - ${beatmapData.artist}` },
-                        { name: `${beatmapData.version}`, value : `by ${beatmapData.creator} - ${(+beatmapData.difficultyrating).toFixed(2)}★`},
+                        { name: '상세 기록', value: `Rank : ${newRecordData.rank}   |   Accuracy : ${accuracy}%\nCOMBO : ${checkedCombo} ${checkedMode}\n
+                        [ 300 : ${newRecordData.count300} ] | [ 100 : ${newRecordData.count100} ] | [ 50 : ${newRecordData.count50} ] | [ miss : ${newRecordData.countmiss} ]` },        
                         { name: '\u200B', value: '\u200B' },
                         { name: '달성한 맵 링크', value: `https://osu.ppy.sh/beatmapsets/${beatmapData.beatmapset_id}#osu/${beatmapData.beatmap_id}` },
                         { name: '\u200B', value: '\u200B' },
-                        { name: `상세 점수`, value : `Rank : ${newRecordData.rank}   |   Accuracy : ${accuracy}%\nCOMBO : ${checkedCombo} \n Mods : ${checkedMode}\n
-                        [300] : ${newRecordData.count300} | [100] : ${newRecordData.count100} | [50] : ${newRecordData.count50} | [miss] : ${newRecordData.countmiss}` }  
-                    );
+                   );
                 //osu 맵 정보 인식 및 Map Number 추출, 맵 정보 출력 코드
                 const channel = await client.channels.fetch(osu_channel);
                 await channel.send({ embeds: [resultEmbed] });
@@ -696,20 +817,22 @@ async function compareUserRecent(userId){
     }
 }
 
-// 정확도 계산 함수
+// 정확도 계산 함수 
 // (300 notes*300 + 100 notes*100 + 50 notes*50) / (ALL notes * 300)
 function checkAccuracy(n300, n100, n50, n0){
     let nALL = Number(n300) + Number(n100) + Number(n50) + Number(n0);
     let accuracy = (((n300*300 + n100*100 + n50*50) / (nALL * 300)) * 100).toFixed(2);
-    console.log(`300 : ${n300}, 100 : ${n100}, 50 : ${n50}, miss : ${n0}`);
-    console.log(accuracy);
+    
+    // 오류 확인용 로그
+    //console.log(`300 : ${n300}, 100 : ${n100}, 50 : ${n50}, miss : ${n0}`);
+    //console.log(accuracy);
     return accuracy;
 }
 
 // 모드 체크 함수
 function checkMods (mods_num){
     if (mods_num == 0){
-        return "None";
+        return "";
     }
     if (mods_num & Mods.Nightcore){
         mods_num &= ~Mods.DoubleTime;
@@ -723,11 +846,41 @@ function checkMods (mods_num){
 // 콤보 체크 함수
 function checkCombo(userCombo, mapCombo){
     if (userCombo == mapCombo){
-        return "FULL COMBO";
+        return `${userCombo} / ${mapCombo} ${bold("(FC)")}`;
     }
     else {
         return `${userCombo} / ${mapCombo}`;
     }
+}
+
+// PP, TotalRank, Accuracy
+function signFormat(num, num2){
+    let absNum = Math.abs(num);
+    let result;
+    switch(num2){
+        case 0:
+            result = `${absNum}pp`;
+            break;
+        case 1:
+            result = `#${absNum}`;
+            break;
+        case 2:
+            result = `${absNum}%`
+            break;
+        default:
+            return "signFormat() Invalid num2";
+    }
+
+    if (num > 0) {
+        result = `(+${result})`;
+    }
+    else if (num == 0){
+        return "";
+    }
+    else {
+        result = `(-${result})`;
+    }
+    return result;
 }
 
 // Recent Score중 score_id가 존재하는(클리어 책정이 된) 최근 10개의 기록만을 가져오는 함수

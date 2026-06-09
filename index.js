@@ -1,3 +1,8 @@
+// Log 수집용 코드
+const winston = require('winston');
+const DailyRotateFile = require('winston-daily-rotate-file');
+const path = require('path');
+
 const { REST, Routes } = require ('discord.js');
 const { Client, Events, GatewayIntentBits, MessageAttachment, EmbedBuilder } = require('discord.js');
 const { bold } = require('discord.js');
@@ -79,6 +84,55 @@ const client = new Client({ intents: [
     GatewayIntentBits.MessageContent
 ] });
 
+
+
+// 1. 로그 포맷 설정 (연-월-일 시:분:초 [로그레벨]: 메시지)
+const logFormat = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.printf(({ timestamp, level, message }) => {
+    return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+  })
+);
+
+// 2. 로거 생성
+const logger = winston.createLogger({
+  format: logFormat,
+  transports: [
+    // 일반 로그 (info, warn, error 모두 기록)
+    new DailyRotateFile({
+      level: 'info',
+      filename: path.join(__dirname, 'logs', 'log-%DATE%.txt'),
+      datePattern: 'YYYY-MM-DD',
+      zippedArchive: false,      
+      maxSize: '20m',            // 파일당 최대 20MB
+      maxFiles: '30d'            // 30일 지나면 자동 삭제 (덮어쓰기 효과)
+    }),
+    // 에러 로그만 별도로 한 번 더 모으기
+    new DailyRotateFile({
+      level: 'error',
+      filename: path.join(__dirname, 'logs', 'error-%DATE%.txt'),
+      datePattern: 'YYYY-MM-DD',
+      maxFiles: '30d'
+    })
+  ]
+});
+
+// 3. Docker 콘솔(docker logs)에서도 실시간으로 볼 수 있도록 설정
+logger.add(new winston.transports.Console({
+  format: winston.format.combine(
+    winston.format.colorize(),
+    winston.format.simple()
+  )
+}));
+
+// console.log, console.error 재정의 자동으로 winston 로그파일에 기록
+console.log = (...args) => logger.info(args.join(' '));
+console.error = (...args) => logger.error(args.join(' '));
+console.warn = (...args) => logger.warn(args.join(' '));
+
+
+
+
 function wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -110,7 +164,7 @@ for (const file of commandFiles) {
 // Rest 호출
 const rest = new REST().setToken(token);
 
-client.on('ready', async () => { 
+client.on(Events.ClientReady, async () => { 
     // guildId = 슬래시 명령어를 등록할 서버 ID
     const guild = client.guilds.cache.get(guildId);
 
@@ -700,6 +754,7 @@ async function compareUserRecent(userId){
         // 최근 기록이 갱신되지 않았으면, 종료시킴
         if (recentScores.length < 1){
             console.log('최근 기록이 갱신되지 않음.');
+            console.log("------------------------------");
             return;
         }
         // 최근 5개의 기록중 밑에서부터 하나씩 기록 조사
@@ -714,11 +769,10 @@ async function compareUserRecent(userId){
             // 중복 검사, 만약 중복되는 경우가 있다면 getAchievements 작업을 종료함
             if (SAVED_ACHIEVEMENTS.get(userId).includes(recentScores[i].score_id)) {
                 console.log("중복 자료 발견함 종료.");
+                console.log("------------------------------");
                 break;
             }
-            SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);    
-            
-    
+            SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);
             
             
             // data.json 에서 가져온 설정된 50위 pp를 가져옴
@@ -726,6 +780,8 @@ async function compareUserRecent(userId){
             // let rankPP = osu_userRankPP[userId];
 
             // 내 최고 50위 순위권 내에 존재하는 score인 경우, pp 기록을 갱신한 경우로 확인
+
+
             
             const newRecordIndex = user_Top50Score.findIndex(item => item.score_id === recentScores[i].score_id);
             if (newRecordIndex !== -1){
@@ -736,6 +792,8 @@ async function compareUserRecent(userId){
                 const username = Object.entries(osu_userId).find(([name, id]) => id === userId)?.[0];
 
                 //console.log(recordedUserData);
+                console.log(`${username}님이 신기록 달성! `);
+                console.log("------------------------------");
 
                 await reloadData();
                 
@@ -900,7 +958,7 @@ async function getUserRecent(userId){
         })
 
         let getScores = data
-            .slice(0, 5)
+            .slice(0, 10)
             .map(({ beatmap_id, user_id, score_id }) => ({ beatmap_id, user_id, score_id }));
 
         return getScores;

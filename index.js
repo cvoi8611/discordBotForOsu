@@ -627,8 +627,8 @@ async function hasSelectedDiffIncreasingMods(mods) {
     catch(error){
         console.error("Error:",error);
     }
-    const targetMods = Mods.Nightcore | Mods.DoubleTime | Mods.Flashlight | Mods.HardRock;
-    console.log(`return : ${mods & targetMods}`);
+    const targetMods = Mods.Hidden | Mods.Nightcore | Mods.DoubleTime | Mods.Flashlight | Mods.HardRock;
+    //console.log(`return : 인식된 모드 ${mods & targetMods}`);
     return (mods & targetMods);
 }
 
@@ -741,6 +741,16 @@ async function getUserData(userId){
 // 최근 기록 5개를 수집하여, pp를 수집하고 최고 50등의 pp보다 높으면 알림을 주는 기능
 // 최근 기록 5개를 저장하기 위한 SAVED_ACHIEVEMENTS와 비교해서 중복값이 존재하면 바로 함수 종료
 async function compareUserRecent(userId){
+    
+    // 여기로 옮겨도 될 것 같은데, 아직 테스트 미진행
+
+    // // [ {beatmap_id, user_id, score_id} ]
+    // let recentScores = await getUserRecent(userId);
+
+    // // TOP 50의 모든
+    // // beatmap_id, score_id, count300, count100, count50, countmiss, 
+    // // maxcombo, enabled_mods, rank, pp
+    // const user_Top50Score = await getUserTop50All(userId);
     try {
 
         // [ {beatmap_id, user_id, score_id} ]
@@ -757,13 +767,14 @@ async function compareUserRecent(userId){
             console.log("------------------------------");
             return;
         }
-        // 최근 5개의 기록중 밑에서부터 하나씩 기록 조사
+        // 최근 기록 갯수 n개의 기록중 밑에서부터 하나씩 기록 조사
         for (let i=0; i<recentScores.length; i++){
             console.log(`recent score id : ${recentScores[i].score_id}`);
             
             // 중복 검사 구간
             // 기록 조사를 처음부터 한다면, SAVED_ACHIEVEMENTS에 userId에 해당되는 새로운 배열을 생성
             if (!SAVED_ACHIEVEMENTS.has(userId)) {
+                //console.log("새로운 유저 발견, SAVED_ACHIEVEMENTS에 새로운 배열 생성");
                 SAVED_ACHIEVEMENTS.set(userId, []);  // userId에 대한 배열을 초기화
             }
             // 중복 검사, 만약 중복되는 경우가 있다면 getAchievements 작업을 종료함
@@ -780,9 +791,6 @@ async function compareUserRecent(userId){
             // let rankPP = osu_userRankPP[userId];
 
             // 내 최고 50위 순위권 내에 존재하는 score인 경우, pp 기록을 갱신한 경우로 확인
-
-
-            
             const newRecordIndex = user_Top50Score.findIndex(item => item.score_id === recentScores[i].score_id);
             if (newRecordIndex !== -1){
                 const newRecordData = user_Top50Score[newRecordIndex];
@@ -792,8 +800,7 @@ async function compareUserRecent(userId){
                 const username = Object.entries(osu_userId).find(([name, id]) => id === userId)?.[0];
 
                 //console.log(recordedUserData);
-                console.log(`${username}님이 신기록 달성! `);
-                console.log("------------------------------");
+                console.log(`--------// ${username}님이 신기록 달성! //--------`);
 
                 await reloadData();
                 
@@ -865,6 +872,9 @@ async function compareUserRecent(userId){
                 //osu 맵 정보 인식 및 Map Number 추출, 맵 정보 출력 코드
                 const channel = await client.channels.fetch(osu_channel);
                 await channel.send({ embeds: [resultEmbed] });
+            }
+            else {
+                console.log(`recent score id : ${recentScores[i].score_id}, 최고 50위 이내 기록과 일치하는 기록이 아님.`);
             }
             // 반복되는 recent 데이터가 없는 경우, 데이터 검사 시행
         }

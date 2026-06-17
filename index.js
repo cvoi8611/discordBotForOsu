@@ -192,16 +192,15 @@ client.on(Events.ClientReady, async () => {
 client.on('interactionCreate', async interaction =>{
     // 자동 완성 기능 (Auto Complete)
     if (interaction.isAutocomplete()){
-        if (interaction.commandName == '유저_정보'){
-            console.log("유저_정보 자동완성 확인");
+        if (interaction.commandName == '유저_정보' || interaction.commandName == 'check_score'){
             let osuUsers = Object.keys(osu_userId);
             const focusedValue = interaction.options.getFocused();
-            
+
             // 입력값과 부분적으로 일치하는 유저명 필터링
             const filtered = osuUsers.filter(osuUsers => osuUsers.toLowerCase().startsWith(focusedValue.toLowerCase()));
-            
+
             // 추천 목록을 응답으로 보냄
-            await interaction.respond(filtered.map(osuUsers => ({ name: osuUsers, value: osuUsers })),);
+            await interaction.respond(filtered.map(osuUsers => ({ name: osuUsers, value: osuUsers })));
         }
     }
 });
@@ -333,6 +332,22 @@ client.on('interactionCreate', async interaction =>{
         // case '유저_등록':
         //    await reloadData();
         //     break;
+
+        case 'check_score': {
+            const checkUsername = interaction.options.getString('user');
+            const checkScoreId = interaction.options.getString('score_id');
+            const checkUserId = osu_userId[checkUsername];
+
+            if (!checkUserId) {
+                await interaction.reply(`등록되지 않은 유저입니다: ${checkUsername}`);
+                break;
+            }
+
+            await interaction.deferReply();
+            await testUserScoreAnnounce(checkUserId, checkScoreId);
+            await interaction.editReply(`${checkUsername} / score_id: ${checkScoreId} 확인 완료.`);
+            break;
+        }
 
         case 'ping':
             await interaction.reply('Pong!');
@@ -783,14 +798,13 @@ async function compareUserRecent(userId){
                 console.log("------------------------------");
                 break;
             }
-            SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);
-            
             
             // data.json 에서 가져온 설정된 50위 pp를 가져옴
             // await reloadData();
             // let rankPP = osu_userRankPP[userId];
 
             // 내 최고 50위 순위권 내에 존재하는 score인 경우, pp 기록을 갱신한 경우로 확인
+
             const newRecordIndex = user_Top50Score.findIndex(item => item.score_id === recentScores[i].score_id);
             if (newRecordIndex !== -1){
                 const newRecordData = user_Top50Score[newRecordIndex];
@@ -847,7 +861,7 @@ async function compareUserRecent(userId){
 
                 const updatedRank = newRecordIndex+1;
 
-                const checkedMode = checkMods == "" ? `(${checkMods(newRecordData.enabled_mods)})` : "";
+                const checkedMode = checkMods(newRecordData.enabled_mods) == "" ? `` : `(${checkMods(newRecordData.enabled_mods)})`;
                 const checkedCombo = checkCombo(newRecordData.maxcombo, beatmapData.max_combo);
 
                 let resultEmbed = new EmbedBuilder()
@@ -872,10 +886,13 @@ async function compareUserRecent(userId){
                 //osu 맵 정보 인식 및 Map Number 추출, 맵 정보 출력 코드
                 const channel = await client.channels.fetch(osu_channel);
                 await channel.send({ embeds: [resultEmbed] });
+                console.log(`${username}님의 획득 pp : ${bold(newRecordData.pp)} 기록이 SAVED_ACHIEVEMENTS에 갱신됨`);
+                SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);
             }
             else {
-                console.log(`recent score id : ${recentScores[i].score_id}, 최고 50위 이내 기록과 일치하는 기록이 아님.`);
+                console.log(`해당 기록은 최고 50위 이내 기록과 일치하는 기록이 아님.`);
             }
+            console.log("------------------------------");
             // 반복되는 recent 데이터가 없는 경우, 데이터 검사 시행
         }
     }
@@ -885,7 +902,80 @@ async function compareUserRecent(userId){
     }
 }
 
-// 정확도 계산 함수 
+// user_id, score_id를 직접 입력받아 해당 기록이 Top50 이내인지 확인하고 Embed 출력 (읽기 전용 테스트용)
+async function testUserScoreAnnounce(userId, scoreId){
+    try {
+        const user_Top50Score = await getUserTop50All(userId);
+        const newRecordIndex = user_Top50Score.findIndex(item => item.score_id === scoreId);
+
+        if (newRecordIndex === -1){
+            console.log(`score_id ${scoreId} 는 ${userId}의 Top50 이내 기록이 아닙니다.`);
+            return;
+        }
+
+        const newRecordData = user_Top50Score[newRecordIndex];
+        const top50PPData = user_Top50Score[49];
+        const rankPP = (+top50PPData.pp).toFixed(3);
+        const recordedUserData = await getUserData(userId);
+        const username = Object.entries(osu_userId).find(([name, id]) => id === userId)?.[0];
+
+        console.log(`--------// [TEST] ${username}님 Top50 기록 확인 (${newRecordIndex + 1}위) //--------`);
+
+        const prevUserRawPP = osu_userRawPP[userId];
+        const prevUserTotalRank = osu_userTotalRank[userId];
+        const prevUserAccuracy = (+osu_userAccuracy[userId]).toFixed(3);
+
+        const currentUserRawPP = recordedUserData.pp_raw;
+        const currentUserTotalRank = recordedUserData.pp_rank;
+        const currentUserAccuracy = (+recordedUserData.accuracy).toFixed(3);
+
+        const rawdiffRawPP = (Number(currentUserRawPP) - Number(prevUserRawPP)).toFixed(3);
+        const rawdiffTotalRank = Number(prevUserTotalRank) - Number(currentUserTotalRank);
+        const rawdiffUserAccuracy = (Number(currentUserAccuracy) - Number(prevUserAccuracy)).toFixed(3);
+
+        const diffRawPP = signFormat(rawdiffRawPP, 0);
+        const diffTotalRank = signFormat(rawdiffTotalRank, 1);
+        const diffUserAccuracy = signFormat(rawdiffUserAccuracy, 2);
+
+        const accuracy = checkAccuracy(newRecordData.count300, newRecordData.count100, newRecordData.count50, newRecordData.countmiss);
+
+        const filteredBeatmapData = await getBeatmapData(newRecordData.beatmap_id, newRecordData.enabled_mods);
+        const beatmapData = filteredBeatmapData[0];
+
+        const updatedRank = newRecordIndex + 1;
+        const checkedMode = checkMods(newRecordData.enabled_mods) == "" ? `` : `(${checkMods(newRecordData.enabled_mods)})`;
+        const checkedCombo = checkCombo(newRecordData.maxcombo, beatmapData.max_combo);
+
+        let resultEmbed = new EmbedBuilder()
+            .setColor(0x0099ff)
+            .setTitle(`${username}님이 ${updatedRank} 번째 최고기록을 갱신하였습니다!`)
+            .setDescription(`[osu! 유저 프로필 이동](https://osu.ppy.sh/users/${userId})`)
+            .setImage(`https://assets.ppy.sh/beatmaps/${beatmapData.beatmapset_id}/covers/cover.jpg`)
+            .addFields(
+                { name: '​', value: '​' },
+                { name: `${beatmapData.title}`, value : `${beatmapData.version} - ${(+beatmapData.difficultyrating).toFixed(2)}★\n`},
+                { name: `획득 pp : ${bold(newRecordData.pp)}  |  ${osu_userRankNum[username]}위 pp : ${rankPP}\n`,
+                value: `총 pp : ${prevUserRawPP}pp -> ${currentUserRawPP}pp ${diffRawPP}\n
+                        순위 변동 : #${(+prevUserTotalRank).toLocaleString()} -> #${(+currentUserTotalRank).toLocaleString()} ${diffTotalRank}
+                        정확도 변동 : ${(+prevUserAccuracy).toFixed(3)}% -> ${(+currentUserAccuracy).toFixed(3)}% ${(diffUserAccuracy)}` },
+                { name: '​', value: '​' },
+                { name: '상세 기록', value: `Rank : ${newRecordData.rank}   |   Accuracy : ${accuracy}%\nCOMBO : ${checkedCombo} ${checkedMode}\n
+                [ 300 : ${newRecordData.count300} ] | [ 100 : ${newRecordData.count100} ] | [ 50 : ${newRecordData.count50} ] | [ miss : ${newRecordData.countmiss} ]` },
+                { name: '​', value: '​' },
+                { name: '달성한 맵 링크', value: `https://osu.ppy.sh/beatmapsets/${beatmapData.beatmapset_id}#osu/${beatmapData.beatmap_id}` },
+                { name: '​', value: '​' },
+            );
+
+        const channel = await client.channels.fetch(osu_channel);
+        await channel.send({ embeds: [resultEmbed] });
+        console.log(`[TEST] 알림 전송 완료.`);
+    }
+    catch (error) {
+        console.error('testUserScoreAnnounce Error:', error);
+    }
+}
+
+// 정확도 계산 함수
 // (300 notes*300 + 100 notes*100 + 50 notes*50) / (ALL notes * 300)
 function checkAccuracy(n300, n100, n50, n0){
     let nALL = Number(n300) + Number(n100) + Number(n50) + Number(n0);

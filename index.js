@@ -64,6 +64,13 @@ const Mods = {
 };
                     
 let SAVED_ACHIEVEMENTS = new Map();
+
+// Top50에 없는 score_id의 재확인 횟수를 추적하는 Map
+// API 갱신 지연으로 인해 recent에는 있지만 Top50에 아직 반영 안 된 경우를 대비해,
+// 즉시 버리지 않고 MAX_SCORE_RETRY_COUNT 횟수만큼 재확인 후 포기
+const MAX_SCORE_RETRY_COUNT = 5;
+let SCORE_RETRY_COUNT = new Map();
+
 const cooldowns = new Map();
 
 const requestHeader_GET = {
@@ -890,7 +897,19 @@ async function compareUserRecent(userId){
                 SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);
             }
             else {
-                console.log(`해당 기록은 최고 50위 이내 기록과 일치하는 기록이 아님.`);
+                // Top50에 없는 경우: API 갱신 지연 가능성을 고려해 즉시 SAVED_ACHIEVEMENTS에 추가하지 않고
+                // 재확인 횟수를 누적한다. MAX_SCORE_RETRY_COUNT 도달 시 Top50 기록이 아닌 것으로 확정하고 재확인 중단.
+                const retryCount = (SCORE_RETRY_COUNT.get(recentScores[i].score_id) || 0) + 1;
+                SCORE_RETRY_COUNT.set(recentScores[i].score_id, retryCount);
+
+                if (retryCount >= MAX_SCORE_RETRY_COUNT) {
+                    console.log(`해당 기록은 최고 50위 이내 기록과 일치하는 기록이 아님. (${retryCount}/${MAX_SCORE_RETRY_COUNT}회) - 재확인 중단`);
+                    SAVED_ACHIEVEMENTS.get(userId).push(recentScores[i].score_id);
+                    SCORE_RETRY_COUNT.delete(recentScores[i].score_id);
+                }
+                else {
+                    console.log(`해당 기록은 최고 50위 이내 기록과 일치하는 기록이 아님. (${retryCount}/${MAX_SCORE_RETRY_COUNT}회) - 다음 폴링에서 재확인`);
+                }
             }
             console.log("------------------------------");
             // 반복되는 recent 데이터가 없는 경우, 데이터 검사 시행
